@@ -1,0 +1,15 @@
+{
+  "name": "pptxtractor",
+  "owner": {
+    "name": "Andy Wilson Design",
+    "url": "https://andywilsondesign.com"
+  },
+  "plugins": [
+    {
+      "name": "pptxtractor",
+      "source": "./",
+      "description": "Bulk-extract faithful representations from PowerPoint decks: vector PDFs, animation build states, speaker notes and embedded media.",
+      "version": "1.0.0"
+    }
+  ]
+}

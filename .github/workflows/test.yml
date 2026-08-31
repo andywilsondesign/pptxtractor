@@ -1,0 +1,20 @@
+name: test
+
+on: [push, pull_request]
+
+jobs:
+  core:
+    # The PowerPoint-driven export cannot run here - GitHub's macOS runners
+    # have no Office licence. This covers the parsing and PDF work, which is
+    # where the logic lives.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the renderer
+        run: make
+      - name: Core tests
+        run: python3 tests/test_core.py
+      - name: CLI smoke test
+        run: |
+          ./bin/pptxtractor version
+          ./bin/pptxtractor help > /dev/null

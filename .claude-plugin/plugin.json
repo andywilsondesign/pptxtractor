@@ -1,0 +1,11 @@
+{
+  "name": "pptxtractor",
+  "version": "1.0.0",
+  "description": "Bulk-extract faithful representations from PowerPoint decks: vector PDFs, animation build states, speaker notes and embedded media.",
+  "author": {
+    "name": "Andy Wilson Design",
+    "url": "https://andywilsondesign.com"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/andywilsondesign/pptxtractor"
+}

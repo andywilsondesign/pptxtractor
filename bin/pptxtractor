@@ -1,0 +1,50 @@
+#!/bin/bash
+# pptxtractor - bulk-extract faithful representations from PowerPoint decks.
+# https://github.com/andywilsondesign/pptxtractor
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SRC="$HERE/../src"
+
+usage() {
+cat <<'USAGE'
+pptxtractor - bulk-extract faithful representations from PowerPoint decks.
+
+  pptxtractor audit  <folder> [--json FILE]
+      Read every .pptx under <folder> without opening PowerPoint. Reports slide
+      counts, aspect ratios, fonts that will be substituted, animation builds,
+      embedded media, speaker notes and duplicates. Emits JSON.
+
+  pptxtractor export --root <folder> --out <folder> [options]
+      Export each deck to a vector PDF via PowerPoint, with speaker notes
+      attached and playable media extracted alongside.
+
+      --states          expand animation builds into extra PDF pages
+      --format FMT      also render images: png (default), jpeg, jpg
+      --edge N          image long edge in px (3840 = 4K)
+      --only TEXT       substring filter on the deck path
+      --no-notes        do not attach speaker notes
+      --no-media        do not extract media
+      --svg             also extract embedded SVGs
+      --deadline N      seconds per deck before giving up (default 600)
+      --dry-run         list what would be exported and stop
+
+  pptxtractor render <archive> [--format FMT] [--edge N] [--only TEXT]
+                                [--page N] [--force]
+      Render images from PDFs the export already produced. PowerPoint is not
+      involved, so this is fast and repeatable at any size.
+
+  pptxtractor version | help
+
+Requires macOS and Microsoft PowerPoint (audit and render need neither).
+USAGE
+}
+
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  audit)   exec python3 "$SRC/audit.py" "$@" ;;
+  export)  exec bash "$SRC/export.sh" "$@" ;;
+  render)  exec bash "$SRC/render.sh" "$@" ;;
+  version) echo "pptxtractor 1.0.0" ;;
+  help|-h|--help) usage ;;
+  *) echo "unknown command: $cmd"; echo; usage; exit 2 ;;
+esac

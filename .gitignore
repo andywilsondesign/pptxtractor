@@ -1,0 +1,4 @@
+bin/pdfrender
+tests/fixtures/
+*.log
+.DS_Store
