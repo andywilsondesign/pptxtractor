@@ -23,7 +23,7 @@ set -uo pipefail
 ROOT=""
 EDGE=3840
 FORMAT="png"
-MODE="dry"
+MODE="run"
 OUTROOT=""
 ONLY=""
 STATES=0
@@ -39,7 +39,7 @@ LOG="$HERE/export.log"
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --run) MODE="run"; shift ;;
+    --run) MODE="run"; shift ;;          # accepted, and the default
     --dry-run) MODE="dry"; shift ;;
     --edge) EDGE="$2"; shift 2 ;;
     --out) OUTROOT="$2"; shift 2 ;;
@@ -170,7 +170,8 @@ while IFS= read -r -d '' src; do
 
   stem="${base%.*}"
   if [ -n "$OUTROOT" ]; then
-    rel="${src#$ROOT/}"; dest="$OUTROOT/$(dirname "$rel")/$stem"
+    rel="${src#$ROOT/}"; sub="$(dirname "$rel")"
+    [ "$sub" = "." ] && dest="$OUTROOT/$stem" || dest="$OUTROOT/$sub/$stem"
   else
     dest="$(dirname "$src")/$stem"
   fi
