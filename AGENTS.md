@@ -14,22 +14,38 @@ Full usage in [README.md](README.md); the workflow an agent should follow is in
 - `render <archive>` — idempotent; skips decks that already have images unless
   `--force`.
 
-## The one rule
+## The sandbox, which explains most failures
 
-**Do not kill an export in flight.** Killing the `osascript` that drives
-PowerPoint wedges the application: it relaunches with no window, one core
-pinned, and every subsequent `open` failing — sometimes with error `-9074`
-immediately, sometimes by hanging indefinitely with no error at all. Counting
-open presentations still succeeds in that state, so a naive health probe reports
-all clear and then every deck fails.
+PowerPoint on macOS is sandboxed: `codesign -d --entitlements` shows
+`com.apple.security.app-sandbox` and `files.user-selected.read-write`. It can
+only open files the **user** picked in a dialog, or files inside its own
+container.
 
-The exporter already handles this: a per-deck `--deadline` watchdog, an
-unconditional PowerPoint reset on any failure, one retry, and a stop after three
-consecutive failures. Let it do that. If you interrupt it, you manufacture the
-failure you then have to diagnose.
+So if you hand it a path it has not been granted, it raises a modal **"Grant
+File Access"** dialog and waits — indefinitely, at 0% CPU, with no error and
+often with no visible window if it is behind something. A scratch directory from
+`mktemp` is a new path every run, so a previous grant never applies and the
+dialog returns for every deck.
 
-If PowerPoint is already wedged when you start, only `pkill -9` and a relaunch
-clears it — a graceful quit will not.
+`export` therefore does its work inside
+`~/Library/Containers/com.microsoft.Powerpoint/Data/tmp/`, where no grant is
+needed. Decks are copied in and the PDF copied back out by the shell, which is
+not sandboxed. **Do not change the workspace to somewhere outside the
+container** — that reintroduces the dialog and every export will appear to hang.
+
+Error `-9074` from an `open` command is consistent with the same cause: the
+sandbox refusing a path.
+
+## Do not kill an export in flight
+
+If an export is interrupted — killing the driving `osascript`, or force-quitting
+PowerPoint — the app can come back wedged: no window, a pinned core, and every
+subsequent open failing. Only `pkill -9` and a relaunch clears that; a graceful
+quit will not.
+
+The exporter already handles failures itself: a per-deck `--deadline` watchdog,
+a PowerPoint reset on any failure, one retry, and a stop after three consecutive
+failures. Let it do that rather than intervening.
 
 ## Long runs
 

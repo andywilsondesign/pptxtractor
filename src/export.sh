@@ -34,7 +34,22 @@ NOTES=1
 DEADLINE=600      # seconds per deck before we give up and move on
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RENDER="$HERE/../bin/pdfrender"
-WORK="$(mktemp -d /tmp/slideexport.XXXXXX)"
+# PowerPoint is sandboxed: its entitlements are app-sandbox plus
+# files.user-selected.read-write, so it can only reach files the *user* picked
+# in a dialog, or files inside its own container. A fresh mktemp path is neither,
+# which is why a scratch dir in /tmp makes it raise "Grant File Access" on every
+# single deck - the path is new every run, so a previous grant never applies.
+#
+# Working inside its container sidesteps the dialog completely: no grant is
+# needed, and nothing has to be clicked. We copy decks in and copy the PDF back
+# out with the shell, which is not sandboxed.
+PPT_CONTAINER="$HOME/Library/Containers/com.microsoft.Powerpoint/Data"
+if [ -d "$PPT_CONTAINER" ]; then
+  WORK="$PPT_CONTAINER/tmp/pptxtractor.$$"
+else
+  WORK="$(mktemp -d /tmp/pptxtractor.XXXXXX)"   # fallback; expect access prompts
+fi
+mkdir -p "$WORK"
 LOG="$HERE/export.log"
 
 while [ $# -gt 0 ]; do

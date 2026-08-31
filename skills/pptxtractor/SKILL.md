@@ -59,12 +59,17 @@ PowerPoint is not involved. Safe to re-run at a different size.
 
 ## Operational rules that matter
 
-**Never kill a running export.** Force-quitting PowerPoint, or killing the
-`osascript` driving it, wedges the app: it comes back with no window, one core
-pinned, and every open failing — sometimes instantly, sometimes by hanging
-forever. Counting open presentations still succeeds in that state, so it looks
-healthy. The tool handles this itself (reset, retry, stop after three
-consecutive failures). If you interrupt it, you cause the failure you then have
+**If exports hang, suspect the sandbox before anything else.** PowerPoint can
+only open files the user picked in a dialog or files inside its own container.
+Given any other path it shows a modal "Grant File Access" prompt and waits
+silently, sometimes with no visible window. The tool avoids this by working
+inside the PowerPoint container — but if you see hangs at 0% CPU, check for that
+dialog rather than assuming the deck is at fault.
+
+**Never kill a running export.** Interrupting it can wedge PowerPoint: no
+window, one core pinned, every open failing, clearable only with `pkill -9` and
+a relaunch. The tool resets and retries on its own and stops after three
+consecutive failures. If you interrupt it, you cause the failure you then have
 to diagnose.
 
 **A deck that fails is usually not the deck's fault.** It is almost always a

@@ -120,12 +120,19 @@ verbatim and about 1 KB per note is appended. Nothing is re-encoded.
 - **Fonts that are neither installed nor embedded in the deck are substituted.**
   PowerPoint cannot conjure them and no pipeline change fixes it. Run `audit`
   first, install what it flags, then export.
+- **PowerPoint is sandboxed, and that shapes the whole design.** It can only
+  open files you picked in a dialog or files inside its own container, so
+  handing it a scratch directory makes it raise a modal "Grant File Access"
+  prompt and wait — with no error, at 0% CPU, sometimes with no visible window.
+  Because a temp path is different every run, the prompt comes back forever.
+  `export` therefore works inside
+  `~/Library/Containers/com.microsoft.Powerpoint/Data/tmp/`, where no grant is
+  needed. If you fork this, do not move that workspace outside the container.
 - **Do not interrupt an export.** Force-quitting PowerPoint, or killing the
-  `osascript` driving it, wedges the app: it relaunches with no window, a pinned
-  core, and every subsequent open failing. Counting open presentations still
-  succeeds in that state, so naive health checks miss it. The exporter detects
-  this, resets PowerPoint and retries, and gives up after three consecutive
-  failures — but do not kill it by hand mid-run.
+  `osascript` driving it, can wedge the app: it relaunches with no window, a
+  pinned core, and every subsequent open failing. Only `pkill -9` and a
+  relaunch clears it. The exporter resets and retries on its own, and gives up
+  after three consecutive failures.
 - **The export closes documents in PowerPoint as it works**, so it refuses to
   start while you have your own files open.
 - **Notes annotation needs a classic cross-reference table.** PowerPoint for Mac
