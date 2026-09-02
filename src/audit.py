@@ -13,6 +13,9 @@ Everything here is read-only and needs nothing but the Python standard library.
 import json, math, os, re, sys, zipfile
 from collections import Counter, defaultdict
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import buildstates            # single definition of what counts as a build state
+
 VIDEO = {'.mp4', '.mov', '.m4v', '.avi', '.wmv', '.mpg', '.mpeg', '.mkv', '.webm', '.asf', '.3gp'}
 AUDIO = {'.mp3', '.wav', '.m4a', '.aac', '.wma', '.aiff', '.au', '.mid', '.midi'}
 SKIP_FONTS = {'Wingdings', 'Wingdings 2', 'Wingdings 3', 'Webdings', 'Symbol', 'Arial Unicode MS'}
@@ -37,13 +40,17 @@ def available_fonts():
     dirs = ['/System/Library/Fonts', '/Library/Fonts', os.path.expanduser('~/Library/Fonts')]
     for app in ('PowerPoint', 'Word', 'Excel'):
         dirs.append('/Applications/Microsoft %s.app/Contents/Resources/DFonts' % app)
+    # Walk, don't listdir: macOS keeps Arial, Verdana, Trebuchet MS, Georgia,
+    # Gill Sans and ~290 other faces in /System/Library/Fonts/Supplemental/.
+    # A non-recursive scan misses all of them and reports installed fonts as
+    # about to be substituted - the opposite of what this command is for.
     for d in dirs:
-        try:
-            for f in os.listdir(d):
+        for _root, _subdirs, files in os.walk(d):
+            for f in files:
+                if not f.lower().endswith(('.ttf', '.otf', '.ttc', '.dfont')):
+                    continue
                 names.add(_norm(f))
                 names.add(re.sub(r'[^a-z0-9]', '', os.path.splitext(f)[0].lower()))
-        except OSError:
-            pass
     return names
 
 
@@ -166,12 +173,18 @@ def inspect(path, avail):
                 missing.append(f)
             rec["fonts_missing"] = missing
 
-            # animation builds
+            # Animation builds. Count what `export --states` will actually
+            # produce, not every click step: a step animates a build only if it
+            # has an entrance or exit targeting a shape. Motion-path and
+            # emphasis effects are click steps too, but they have no meaningful
+            # still frame, so they yield no extra page. Counting raw
+            # clickEffect nodes promised pages the export never delivered
+            # (one deck here forecast 42 and produced none).
             for n in slides:
                 xml = z.read(n)
                 if b'<p:timing' not in xml:
                     continue
-                clicks = len(re.findall(rb'nodeType="clickEffect"', xml))
+                clicks = len(buildstates.click_steps(xml))
                 if clicks:
                     rec["animated_slides"] += 1
                     rec["build_states"] += clicks

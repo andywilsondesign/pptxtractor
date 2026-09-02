@@ -40,12 +40,19 @@ while IFS= read -r -d '' pdf; do
   dir="$(dirname "$pdf")"
   stem="$(basename "$pdf" .pdf)"
   out="$dir/images"
-  if [ "$FORCE" = "0" ] && [ -d "$out" ] && [ -n "$(ls -A "$out" 2>/dev/null)" ]; then
+  # Look for the format that was asked for. Testing "is the folder non-empty"
+  # meant `render --format jpeg` silently did nothing on an archive that had
+  # already been rendered to PNG.
+  case "$FORMAT" in jpeg|jpg) ext="jpg" ;; *) ext="png" ;; esac
+  if [ "$FORCE" = "0" ] && [ -n "$(ls -A "$out"/*."$ext" 2>/dev/null)" ]; then
     skip=$((skip+1)); continue
   fi
   mkdir -p "$out"
-  if "$RENDER" "$pdf" "$out" "$EDGE" "$stem" "$FORMAT" ${PAGE:+$PAGE} >/dev/null 2>&1; then
-    n=$(ls -1 "$out"/* 2>/dev/null | wc -l | tr -d ' ')
+  # Count what the renderer actually wrote - it prints one line per file.
+  # Counting the whole folder reported 47 pages for a 23-page deck once both
+  # PNG and JPEG lived in it.
+  if out_lines=$("$RENDER" "$pdf" "$out" "$EDGE" "$stem" "$FORMAT" ${PAGE:+$PAGE} 2>/dev/null); then
+    n=$(printf '%s\n' "$out_lines" | grep -c .)
     echo "$n $FORMAT  $stem"
     done_n=$((done_n+1)); pages=$((pages+n))
   else

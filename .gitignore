@@ -2,3 +2,25 @@ bin/pdfrender
 tests/fixtures/
 *.log
 .DS_Store
+
+# Never let source decks, exported archives or audit output into the repo.
+# This tool is pointed at private material; the repo is public.
+*.pptx
+*.potx
+*.ppt
+*.pps
+*.ppsx
+*.pdf
+*.key
+audit*.json
+slides.json
+media.json
+/out/
+/output/
+/archive/
+/exports/
+/decks/
+
+# Machine-to-machine handover scaffolding, not part of the project.
+HANDOVER.md
+*.bundle

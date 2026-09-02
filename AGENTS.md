@@ -36,6 +36,21 @@ container** — that reintroduces the dialog and every export will appear to han
 Error `-9074` from an `open` command is consistent with the same cause: the
 sandbox refusing a path.
 
+## Hidden slides
+
+PowerPoint does not put `show="0"` slides into a PDF. Anything that maps pages
+back to slides — the build expansion, `slides.json`, the notes mapping — must
+skip them, or the map runs ahead of the PDF and notes land on the wrong pages.
+This fails silently: the PDF still looks right. `buildstates.is_hidden()` is the
+single test; use it rather than writing another one.
+
+## Very large decks
+
+A 333 MB deck opened and then sat at 0% CPU indefinitely, with the file open, no
+dialog, and PowerPoint unresponsive even to Accessibility queries. The
+`--deadline` watchdog exists for this. Run `audit` first and treat multi-hundred
+-MB decks as likely to need handling on their own.
+
 ## Do not kill an export in flight
 
 If an export is interrupted — killing the driving `osascript`, or force-quitting

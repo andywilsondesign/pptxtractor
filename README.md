@@ -117,6 +117,13 @@ verbatim and about 1 KB per note is appended. Nothing is re-encoded.
 
 ## Known limits
 
+- **Hidden slides are not exported.** PowerPoint leaves `show="0"` slides out
+  of a PDF, so the archive does too, and the page map skips them. If you want a
+  hidden slide in the archive, unhide it in PowerPoint before exporting.
+- **Very large decks can wedge PowerPoint.** A 333 MB deck sat at 0% CPU
+  indefinitely with the file open and no dialog; the per-deck `--deadline`
+  watchdog is what stops one such deck stalling a whole run. Check `audit` for
+  outliers before a big export.
 - **Fonts that are neither installed nor embedded in the deck are substituted.**
   PowerPoint cannot conjure them and no pipeline change fixes it. Run `audit`
   first, install what it flags, then export.

@@ -62,9 +62,9 @@ for i in 1...max(n, 1) {
     ctx.drawPDFPage(page)
 
     guard let img = ctx.makeImage() else { continue }
-    let name = onlyPage != nil
-        ? "\(prefix).\(ext)"
-        : String(format: "\(prefix)-%0\(pad)d.\(ext)", i)
+    // Always carry the page number, single page or not: naming a one-page
+    // render "<deck>.png" meant a later --page wrote over the earlier one.
+    let name = String(format: "\(prefix)-%0\(pad)d.\(ext)", i)
     let url = outDir.appendingPathComponent(name)
     guard let dest = CGImageDestinationCreateWithURL(url as CFURL, utType as CFString, 1, nil) else { continue }
     var props: [CFString: Any] = [kCGImagePropertyDPIWidth: 144, kCGImagePropertyDPIHeight: 144]

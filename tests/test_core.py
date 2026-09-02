@@ -83,7 +83,7 @@ def main():
         check("page 4 is the plain slide", (pmap[3]["slide"], pmap[3]["state"]), (2, None))
 
         print("speaker notes")
-        notes = extract_notes.slide_notes(deck)
+        notes, page_of = extract_notes.slide_notes(deck)
         truthy("reads the body placeholder", notes.get(1, "").startswith("Fixture speaker notes."))
         truthy("ignores the slide-number placeholder", "7" not in notes.get(1, "").split("\n"))
         smap = os.path.join(tmp, "slides.json")
@@ -91,6 +91,45 @@ def main():
         paged = extract_notes.to_pages(notes, smap)
         check("notes land on every build page", sorted(paged), ["1", "2", "3"])
         truthy("build pages are labelled", paged["2"].startswith("[build 1 of 2]"))
+
+        # PowerPoint omits hidden slides from a PDF export. If we count them the
+        # page map runs ahead of the real PDF and every later note lands on the
+        # wrong page - silently, because the PDF still looks fine.
+        print("hidden slides")
+        hidden_deck = os.path.join(tmp, "hidden.pptx")
+        with zipfile.ZipFile(deck) as zin, \
+                zipfile.ZipFile(hidden_deck, "w", zipfile.ZIP_DEFLATED) as zout:
+            for it in zin.infolist():
+                data = zin.read(it.filename)
+                if it.filename == "ppt/slides/slide1.xml":     # hide the animated one
+                    data = data.replace(b"<p:sld ", b'<p:sld show="0" ', 1)
+                zout.writestr(it, data)
+        truthy("detects show=\"0\"", buildstates.is_hidden(
+            zipfile.ZipFile(hidden_deck).read("ppt/slides/slide1.xml")))
+        truthy("visible slide is not flagged", not buildstates.is_hidden(
+            zipfile.ZipFile(hidden_deck).read("ppt/slides/slide2.xml")))
+        hexp = buildstates.expand_deck(hidden_deck, os.path.join(tmp, "hidden-exp.pptx"))
+        check("hidden slide is not expanded", hexp, [])
+        hmap = buildstates.page_map(hidden_deck, hexp)
+        check("hidden slide takes no page", len(hmap), 1)
+        check("survivor is slide 2 on page 1", (hmap[0]["page"], hmap[0]["slide"]), (1, 2))
+        hnotes, hpage_of = extract_notes.slide_notes(hidden_deck)
+        check("hidden slide has no page number", 1 in hpage_of, False)
+        check("slide 2 shifts down to page 1", hpage_of.get(2), 1)
+
+        # A single-page render used to be named "<deck>.<ext>" with no page
+        # number, so rendering page 7 wrote over page 3 and the file did not
+        # sort with the rest of the set.
+        renderer = os.path.join(ROOT, "bin", "pdfrender")
+        if os.path.exists(renderer):
+            print("renderer page naming")
+            rdir = os.path.join(tmp, "img")
+            for page in ("2", "3"):
+                subprocess.run([renderer, pdf, rdir, "800", "deck", "png", page],
+                               check=True, capture_output=True)
+            got = sorted(os.listdir(rdir))
+            check("one file per requested page", len(got), 2)
+            check("page number is kept", got, ["deck-02.png", "deck-03.png"])
 
         print("media extraction")
         mdir = os.path.join(tmp, "media")

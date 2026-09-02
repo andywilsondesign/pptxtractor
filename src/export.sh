@@ -31,7 +31,14 @@ PNG=0
 NOMEDIA=0
 SVG=0
 NOTES=1
-DEADLINE=600      # seconds per deck before we give up and move on
+# Seconds per deck before we give up and move on. Measured on real decks with
+# the sandbox fix in place: a typical deck exports in ~15s and the slowest
+# success seen - 95 slides, 116 pages, notes, media - took 34s. The cases that
+# run long do not run long, they hang: a 333 MB deck sat at 0% CPU past 900s,
+# twice. So the useful setting is a few times the slowest real export, not a
+# fraction of the longest hang. A wedged deck now costs 8 minutes including the
+# retry rather than 20. Raise it with --deadline for unusually heavy libraries.
+DEADLINE=240
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RENDER="$HERE/../bin/pdfrender"
 # PowerPoint is sandboxed: its entitlements are app-sandbox plus
@@ -50,7 +57,6 @@ else
   WORK="$(mktemp -d /tmp/pptxtractor.XXXXXX)"   # fallback; expect access prompts
 fi
 mkdir -p "$WORK"
-LOG="$HERE/export.log"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -78,6 +84,13 @@ fi
 [ -d "$ROOT" ] || { echo "Not a folder: $ROOT"; exit 2; }
 case "$FORMAT" in png|jpeg|jpg) ;; *) echo "--format must be png, jpeg or jpg"; exit 2 ;; esac
 [ "$PNG" = "1" ] && [ ! -x "$RENDER" ] && { echo "Renderer missing. Run: make"; exit 1; }
+
+# The log records deck paths and file names, so it must not land in the source
+# tree - this repo is public and the decks are not. Keep it beside the archive
+# being built; fall back to the (auto-deleted) workspace when there is no --out.
+LOG="${PPTXTRACTOR_LOG:-${OUTROOT:+$OUTROOT/pptxtractor.log}}"
+LOG="${LOG:-$WORK/pptxtractor.log}"
+mkdir -p "$(dirname "$LOG")" 2>/dev/null
 trap 'rm -rf "$WORK"' EXIT
 
 # Force-quitting PowerPoint mid-export wedges it: it comes back with no window,
@@ -194,6 +207,20 @@ while IFS= read -r -d '' src; do
   if [ -s "$dest/$stem.pdf" ]; then
     echo "SKIP (already exported)  $dest"; skip=$((skip+1)); continue
   fi
+  # Check the deck is a readable package before PowerPoint ever sees it. A
+  # truncated .pptx - a zip whose central directory never arrived - looks fine
+  # to `file` and opens as nothing. Handed to PowerPoint it hangs, costing two
+  # full deadlines before the run moves on. Reading the directory is instant.
+  if ! python3 -c 'import sys,zipfile
+try:
+    z = zipfile.ZipFile(sys.argv[1])
+    sys.exit(0 if "ppt/presentation.xml" in z.namelist() else 3)
+except Exception:
+    sys.exit(3)' "$src" 2>/dev/null; then
+    echo "SKIP (not a readable .pptx)  $src"
+    fail=$((fail+1)); continue
+  fi
+
   if [ "$MODE" = "dry" ]; then
     echo "WOULD EXPORT  $src"; echo "           ->  $dest/"; ok=$((ok+1)); continue
   fi

@@ -39,6 +39,22 @@ def click_steps(xml_bytes):
     return steps
 
 
+_SLD_ROOT = re.compile(rb'<p:sld\b[^>]*>')
+
+
+def is_hidden(xml_bytes):
+    """True if the slide is marked show="0".
+
+    PowerPoint omits hidden slides from a PDF export. If we count them anyway
+    the page map runs ahead of the real PDF and every note after the first
+    hidden slide lands on the wrong page - silently, because the PDF still
+    looks fine. Verified: a deck with one hidden 5-state slide mid-deck
+    produced a 27-page map for a 22-page PDF.
+    """
+    m = _SLD_ROOT.search(xml_bytes)
+    return bool(m and b'show="0"' in m.group(0))
+
+
 def _top_level_shapes(xml):
     """(start, end, spid) for each direct child of p:spTree that is a shape."""
     m = re.search(r'<p:spTree[ >]', xml)
@@ -136,7 +152,7 @@ SLIDE_CT = ('application/vnd.openxmlformats-officedocument.'
             'presentationml.slide+xml')
 
 
-def _slide_order(blobs):
+def slide_order(blobs):
     """Slide parts in presentation order, as (part_name, sldId_element_text)."""
     pres = blobs['ppt/presentation.xml'].decode('utf-8')
     rels = blobs['ppt/_rels/presentation.xml.rels'].decode('utf-8')
@@ -170,7 +186,7 @@ def expand_deck(src, dst):
         infos = z.infolist()
         blobs = {i.filename: z.read(i.filename) for i in infos}
 
-    order = _slide_order(blobs)
+    order = slide_order(blobs)
     used_nums = {int(re.search(r'slide(\d+)\.xml$', n).group(1))
                  for n in blobs if re.fullmatch(r'ppt/slides/slide\d+\.xml', n)}
     next_num = max(used_nums) + 1 if used_nums else 1
@@ -188,6 +204,8 @@ def expand_deck(src, dst):
 
     for slide_no, (part, sld_tag) in enumerate(order, 1):
         xml = blobs[part]
+        if is_hidden(xml):
+            continue                         # PowerPoint will not export it
         steps = click_steps(xml)
         if not steps:
             continue
@@ -242,16 +260,26 @@ def expand_deck(src, dst):
 
 
 def page_map(src, expanded):
-    """Page number -> what it shows, for the expanded deck."""
+    """Page number -> what it shows, for the expanded deck.
+
+    Walks presentation order (sldIdLst), not the slideN.xml file names: the two
+    agree in most decks but nothing guarantees it, and `expand_deck` numbers
+    slides by presentation position. Hidden slides are skipped because
+    PowerPoint does not export them.
+    """
     with zipfile.ZipFile(src) as z:
-        total = len([n for n in z.namelist()
-                     if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)])
+        blobs = {n: z.read(n) for n in z.namelist()
+                 if n in ('ppt/presentation.xml', 'ppt/_rels/presentation.xml.rels')
+                 or re.fullmatch(r'ppt/slides/slide\d+\.xml', n)}
+    order = slide_order(blobs)
     extra = {slide: pages for slide, pages in expanded}
     pages, page = [], 1
-    for slide in range(1, total + 1):
-        n = extra.get(slide, 1)
+    for slide_no, (part, _tag) in enumerate(order, 1):
+        if is_hidden(blobs[part]):
+            continue
+        n = extra.get(slide_no, 1)
         for k in range(n):
-            pages.append({"page": page, "slide": slide,
+            pages.append({"page": page, "slide": slide_no,
                           "state": k if n > 1 else None,
                           "of": n if n > 1 else None})
             page += 1
