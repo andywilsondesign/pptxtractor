@@ -495,8 +495,12 @@ except Exception:
     if python3 "$HERE/buildstates.py" expand "$tmp" "$WORK/expanded.pptx" "$dest/slides.json" 2>>"$LOG"; then
       [ -s "$WORK/expanded.pptx" ] && feed="$WORK/expanded.pptx"
     fi
-    grep -q '"expanded_slides": \[\]' "$dest/slides.json" 2>/dev/null && rm -f "$dest/slides.json"
-    [ -s "$dest/slides.json" ] || rm -f "$dest/slides.json"
+  fi
+  # The page map is written either way. Without it a hidden slide silently
+  # shifts every page number after it, and the images would be named for pages
+  # rather than for the slides they actually show.
+  if [ ! -s "$dest/slides.json" ]; then
+    python3 "$HERE/buildstates.py" map "$src" "$dest/slides.json" 2>>"$LOG" || true
   fi
 
   # A -9074 means PowerPoint is wedged, and it stays wedged for every deck after.
@@ -544,7 +548,9 @@ except Exception:
 
   if [ "$PNG" = "1" ]; then
     mkdir -p "$dest/images"
-    if "$RENDER" "$pdf" "$dest/images" "$EDGE" "$stem" "$FORMAT" >>"$LOG" 2>&1; then
+    labels="$WORK/labels.txt"; rm -f "$labels"
+    python3 "$HERE/name_images.py" "$dest/slides.json" "$labels" 2>>"$LOG" || true
+    if "$RENDER" "$pdf" "$dest/images" "$EDGE" "$stem" "$FORMAT" "" "$labels" >>"$LOG" 2>&1; then
       echo "  -> $(ls -1 "$dest/images"/* 2>/dev/null | wc -l | tr -d ' ') $FORMAT @ ${EDGE}px"
     fi
   fi

@@ -142,12 +142,20 @@ pptxtractor render /Volumes/Archive --format jpeg --edge 2560 --only Acme
 ```
 Acme Q3 Review (export)/
 ├── Acme Q3 Review.pdf     vector slides; builds inline; notes attached
-├── slides.json            page -> slide/state map (when builds were expanded)
+├── slides.json            which slide and build state each PDF page shows
 ├── media/
 │   ├── ...-slide014-loop.gif
 │   └── media.json         manifest, including externally linked video
 └── images/                only if you asked for PNG or JPEG
+    ├── Acme Q3 Review-01.png       slide 1
+    ├── Acme Q3 Review-02.01.png    slide 2, first build
+    ├── Acme Q3 Review-02.02.png    slide 2, second build
+    └── Acme Q3 Review-03.png       slide 3
 ```
+
+Images are named for the **slide** they show, not the page they landed on, so
+they sort into the order you would present them. A slide with builds gets one
+image per state, numbered in the order they fire.
 
 ### PDF is the default on purpose
 

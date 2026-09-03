@@ -7,6 +7,15 @@ public release needs.
 
 ### Where things go, and who decides
 
+- **Images are named for the slide they show, not the PDF page they were.**
+  `deck-04.png` is slide 4; `deck-02.01.png` … `deck-02.05.png` are slide 2's
+  build states in order. Page numbers stopped meaning anything as soon as builds
+  were expanded — page 6 of one deck here was slide 2's fourth build — and
+  hidden slides shift the count even with no expansion. Build numbers are padded
+  so a slide with ten states does not sort 1, 10, 2.
+- **The page map is written for every export**, not only when `--states`
+  expanded something, so the mapping from page to slide is always on disk.
+
 - **`export` takes a path, and it can be a single deck.**
   `pptxtractor export ~/Decks` or `pptxtractor export "Q3 Review.pptx"`.
   `--root` still works.

@@ -287,6 +287,15 @@ def page_map(src, expanded):
 
 
 if __name__ == "__main__":
+    # `map` writes the page map for a deck nobody is expanding: one page per
+    # visible slide. Worth having even then, because hidden slides mean page
+    # number and slide number stop agreeing after the first one.
+    if sys.argv[1] == "map":
+        import json
+        src, out = sys.argv[2], sys.argv[3]
+        json.dump({"source": os.path.basename(src), "expanded_slides": [],
+                   "pages": page_map(src, [])}, open(out, "w"), indent=1)
+        sys.exit(0)
     if sys.argv[1] == "expand":
         src, dst = sys.argv[2], sys.argv[3]
         expanded = expand_deck(src, dst)

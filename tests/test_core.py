@@ -18,6 +18,7 @@ import buildstates                                   # noqa: E402
 import extract_notes                                 # noqa: E402
 import extract_media                                 # noqa: E402
 import add_notes                                     # noqa: E402
+import name_images                               # noqa: E402
 
 FAILURES = []
 
@@ -130,6 +131,36 @@ def main():
             got = sorted(os.listdir(rdir))
             check("one file per requested page", len(got), 2)
             check("page number is kept", got, ["deck-02.png", "deck-03.png"])
+
+        # A page number stops meaning anything once builds are expanded, so the
+        # images are named for the slide they show, not the page they were.
+        print("image naming")
+        pmap = [{"page": 1, "slide": 1, "state": None, "of": None},
+                {"page": 2, "slide": 2, "state": 0, "of": 10},
+                {"page": 3, "slide": 2, "state": 9, "of": 10},
+                {"page": 4, "slide": 3, "state": None, "of": None}]
+        lab = name_images.labels_for(pmap)
+        check("plain slide keeps its number", lab[1], "01")
+        check("first build is .01", lab[2], "02.01")
+        check("tenth build pads to .10", lab[3], "02.10")
+        check("builds sort before the next slide", sorted(lab.values()),
+              ["01", "02.01", "02.10", "03"])
+        json.dump({"pages": pmap}, open(os.path.join(tmp, "pm.json"), "w"))
+        lpath = os.path.join(tmp, "labels.txt")
+        n = name_images.write_labels(os.path.join(tmp, "pm.json"), lpath)
+        check("one label per page", n, 4)
+        check("labels are in page order", open(lpath).read().split("\n"),
+              ["01", "02.01", "02.10", "03"])
+        if os.path.exists(renderer):
+            ldir = os.path.join(tmp, "labelled")
+            subprocess.run([renderer, pdf, ldir, "400", "deck", "png", "", lpath],
+                           check=True, capture_output=True)
+            check("renderer uses the labels", sorted(os.listdir(ldir)),
+                  ["deck-01.png", "deck-02.01.png", "deck-02.10.png", "deck-03.png"])
+            # rendering again must overwrite, not accumulate or shuffle
+            subprocess.run([renderer, pdf, ldir, "400", "deck", "png", "", lpath],
+                           check=True, capture_output=True)
+            check("re-rendering is idempotent", len(os.listdir(ldir)), 4)
 
         print("media extraction")
         mdir = os.path.join(tmp, "media")

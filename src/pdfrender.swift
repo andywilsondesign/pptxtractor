@@ -16,14 +16,25 @@ func fail(_ msg: String) -> Never {
 
 let args = CommandLine.arguments
 guard args.count >= 5, let target = Double(args[3]) else {
-    fail("usage: pdfrender <in.pdf> <outDir> <longEdgePx> <prefix> [format] [page]\n"
-       + "       format: png (default) | jpeg | jpg")
+    fail("usage: pdfrender <in.pdf> <outDir> <longEdgePx> <prefix> [format] [page] [labels]\n"
+       + "       format: png (default) | jpeg | jpg\n"
+       + "       labels: file with one name per page, used instead of the page number")
 }
 let src = URL(fileURLWithPath: args[1])
 let outDir = URL(fileURLWithPath: args[2])
 let prefix = args[4]
 let format = args.count >= 6 ? args[5].lowercased() : "png"
 let onlyPage = args.count >= 7 ? Int(args[6]) : nil
+
+// Page numbers stop meaning anything once animation builds are expanded, so the
+// caller can supply the slide each page shows - one label per line, page order.
+// Naming them here rather than renaming afterwards keeps it idempotent: a
+// re-render overwrites the same files instead of shuffling names around.
+var labels: [String] = []
+if args.count >= 8, !args[7].isEmpty,
+   let text = try? String(contentsOfFile: args[7], encoding: .utf8) {
+    labels = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+}
 
 let isJPEG = (format == "jpeg" || format == "jpg")
 guard isJPEG || format == "png" else { fail("unknown format: \(format)") }
@@ -62,9 +73,12 @@ for i in 1...max(n, 1) {
     ctx.drawPDFPage(page)
 
     guard let img = ctx.makeImage() else { continue }
-    // Always carry the page number, single page or not: naming a one-page
-    // render "<deck>.png" meant a later --page wrote over the earlier one.
-    let name = String(format: "\(prefix)-%0\(pad)d.\(ext)", i)
+    // Always carry an index, single page or not: naming a one-page render
+    // "<deck>.png" meant a later --page wrote over the earlier one.
+    let label = (i - 1) < labels.count && !labels[i - 1].isEmpty
+        ? labels[i - 1]
+        : String(format: "%0\(pad)d", i)
+    let name = "\(prefix)-\(label).\(ext)"
     let url = outDir.appendingPathComponent(name)
     guard let dest = CGImageDestinationCreateWithURL(url as CFURL, utType as CFString, 1, nil) else { continue }
     var props: [CFString: Any] = [kCGImagePropertyDPIWidth: 144, kCGImagePropertyDPIHeight: 144]

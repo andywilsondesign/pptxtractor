@@ -51,11 +51,16 @@ while IFS= read -r -d '' pdf; do
   # Count what the renderer actually wrote - it prints one line per file.
   # Counting the whole folder reported 47 pages for a 23-page deck once both
   # PNG and JPEG lived in it.
-  if out_lines=$("$RENDER" "$pdf" "$out" "$EDGE" "$stem" "$FORMAT" ${PAGE:+$PAGE} 2>/dev/null); then
+  # Name images for the slide they show, not the page they happen to be.
+  labels="$(mktemp)"
+  python3 "$HERE/name_images.py" "$dir/slides.json" "$labels" 2>/dev/null || : > "$labels"
+  if out_lines=$("$RENDER" "$pdf" "$out" "$EDGE" "$stem" "$FORMAT" "${PAGE:-}" "$labels" 2>/dev/null); then
+    rm -f "$labels"
     n=$(printf '%s\n' "$out_lines" | grep -c .)
     echo "$n $FORMAT  $stem"
     done_n=$((done_n+1)); pages=$((pages+n))
   else
+    rm -f "$labels"
     echo "FAILED  $pdf"
   fi
 done < <(find "$ARCHIVE" -type f -name "*.pdf" -print0 | sort -z)
