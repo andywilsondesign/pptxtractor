@@ -41,6 +41,108 @@ NOTES=1
 DEADLINE=240
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RENDER="$HERE/../bin/pdfrender"
+WORK=""
+
+# --------------------------------------------------------------------------
+# PowerPoint has to be here, and it has to be scriptable. Both are worth
+# checking before we start walking a library, because both fail in ways that
+# look like the tool is broken rather than the machine being unready.
+# --------------------------------------------------------------------------
+PPT_BUNDLE_ID=""
+
+require_powerpoint() {
+  PPT_BUNDLE_ID="$(osascript -e 'id of application "Microsoft PowerPoint"' 2>/dev/null)"
+  if [ -z "$PPT_BUNDLE_ID" ]; then
+    cat >&2 <<'MISSING'
+Microsoft PowerPoint is not installed, and `export` cannot run without it.
+
+This tool drives the real PowerPoint app to render your slides. That is the
+whole point: it is what keeps licensed fonts, gradients, masters and layouts
+exactly as they look on screen, which every generic .pptx converter gets wrong.
+Nothing else on the machine can stand in for it.
+
+  Get PowerPoint for Mac (2016 or newer, including Microsoft 365):
+  https://www.microsoft.com/en-us/microsoft-365/powerpoint
+
+You only need it for `export`. These two work right now, with no PowerPoint:
+
+  pptxtractor audit  <folder>     inspect a library, write JSON
+  pptxtractor render <archive>    images from PDFs you already exported
+
+MISSING
+    exit 3
+  fi
+
+  local app ver major
+  app="$(osascript -e 'POSIX path of (path to application "Microsoft PowerPoint")' 2>/dev/null)"
+  ver="$(defaults read "${app%/}/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null)"
+  major="${ver%%.*}"
+  # 16.x is Microsoft 365 / Office 2016-2024. 14.x is Office 2011, whose
+  # AppleScript dictionary predates the `save as PDF` verb used here and which
+  # is not sandboxed, so none of the container handling applies either.
+  if [ -n "$major" ] && [ "$major" -lt 15 ] 2>/dev/null; then
+    echo "PowerPoint $ver is too old - this needs 2016 or newer (version 15+)." >&2
+    echo "Office 2011 uses a different AppleScript dictionary and is unsupported." >&2
+    exit 3
+  fi
+  [ -n "$ver" ] && echo "PowerPoint $ver"
+}
+
+# Run an AppleScript with a hard wall-clock cap. A freshly installed PowerPoint
+# can sit on a sign-in, "What's New" or activation sheet, and an Apple event
+# sent to it never returns - so every probe here needs a way out. Prints the
+# script's output; returns 124 if it had to be killed.
+osa_bounded() {
+  local limit="$1" out rc i=0; shift
+  out="$(mktemp)"
+  osascript "$@" >"$out" 2>&1 &
+  local pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    [ $i -ge "$limit" ] && break
+    sleep 1; i=$((i+1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -9 "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+    rm -f "$out"; return 124
+  fi
+  wait "$pid" 2>/dev/null; rc=$?
+  cat "$out"; rm -f "$out"; return $rc
+}
+
+# Sending Apple events to another app needs the user's consent, once, per
+# calling program. Until it is granted every command fails with -1743 and the
+# run looks wedged for no visible reason.
+check_automation_permission() {
+  local r
+  r="$(osa_bounded 90 -e 'tell application "Microsoft PowerPoint" to count of presentations')"
+  if [ $? -eq 124 ]; then
+    cat >&2 <<'STUCK'
+
+PowerPoint did not answer within 90 seconds.
+
+It is usually sitting on a dialog that has to be dealt with once by hand - a
+sign-in prompt, an activation or licence notice, or the "What's New" window.
+Open PowerPoint, clear whatever it is showing, quit it, then run this again.
+
+STUCK
+    exit 5
+  fi
+  case "$r" in
+    *-1743*)
+      cat >&2 <<'DENIED'
+
+Not allowed to control PowerPoint (error -1743).
+
+macOS asks for this once, per app that sends the request. Grant it in:
+  System Settings > Privacy & Security > Automation
+and tick "Microsoft PowerPoint" under whichever app you are running this from
+(Terminal, iTerm, your editor). Then run this again.
+
+DENIED
+      exit 4 ;;
+  esac
+}
+
 # PowerPoint is sandboxed: its entitlements are app-sandbox plus
 # files.user-selected.read-write, so it can only reach files the *user* picked
 # in a dialog, or files inside its own container. A fresh mktemp path is neither,
@@ -50,13 +152,44 @@ RENDER="$HERE/../bin/pdfrender"
 # Working inside its container sidesteps the dialog completely: no grant is
 # needed, and nothing has to be clicked. We copy decks in and copy the PDF back
 # out with the shell, which is not sandboxed.
-PPT_CONTAINER="$HOME/Library/Containers/com.microsoft.Powerpoint/Data"
-if [ -d "$PPT_CONTAINER" ]; then
-  WORK="$PPT_CONTAINER/tmp/pptxtractor.$$"
-else
-  WORK="$(mktemp -d /tmp/pptxtractor.XXXXXX)"   # fallback; expect access prompts
-fi
-mkdir -p "$WORK"
+# One PowerPoint, one export at a time. Two runs would close each other's
+# documents mid-save - the exporter clears open presentations before each deck -
+# and the failures would look random. mkdir is atomic, so it works as a lock.
+LOCK=""
+take_lock() {
+  local lock="${TMPDIR:-/tmp}/pptxtractor.export.lock" owner=""
+  if ! mkdir "$lock" 2>/dev/null; then
+    [ -f "$lock/pid" ] && owner="$(cat "$lock/pid" 2>/dev/null)"
+    if [ -n "$owner" ] && kill -0 "$owner" 2>/dev/null; then
+      echo "Another export is already running (pid $owner)." >&2
+      echo "Only one can drive PowerPoint at a time. Wait for it, or stop it first." >&2
+      exit 6            # LOCK stays empty: we must not clean up someone else's
+    fi
+    echo "Clearing a stale lock from pid ${owner:-unknown}." >&2
+    rm -rf "$lock"; mkdir "$lock" 2>/dev/null || { echo "Could not take the lock." >&2; exit 6; }
+  fi
+  LOCK="$lock"          # only now do we own it, and only now may the trap remove it
+  echo $$ > "$LOCK/pid"
+}
+
+setup_workspace() {
+  local container=""
+  [ -n "$PPT_BUNDLE_ID" ] && container="$HOME/Library/Containers/$PPT_BUNDLE_ID/Data"
+  if [ -n "$container" ] && [ -d "$container" ]; then
+    WORK="$container/tmp/pptxtractor.$$"
+  else
+    # No container yet - PowerPoint has never been launched, or this build
+    # stores it elsewhere. Say so, because the fallback is the slow, prompt-
+    # ridden path rather than a silent equivalent.
+    if [ "$MODE" = "run" ]; then
+      echo "Note: PowerPoint's container is not at ~/Library/Containers/${PPT_BUNDLE_ID:-com.microsoft.Powerpoint}/." >&2
+      echo "      Falling back to a temporary folder; expect a \"Grant File Access\" prompt per deck." >&2
+      echo "      Opening PowerPoint once by hand usually creates the container and avoids this." >&2
+    fi
+    WORK="$(mktemp -d /tmp/pptxtractor.XXXXXX)"
+  fi
+  mkdir -p "$WORK"
+}
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -85,13 +218,22 @@ fi
 case "$FORMAT" in png|jpeg|jpg) ;; *) echo "--format must be png, jpeg or jpg"; exit 2 ;; esac
 [ "$PNG" = "1" ] && [ ! -x "$RENDER" ] && { echo "Renderer missing. Run: make"; exit 1; }
 
+# --dry-run is deliberately usable without PowerPoint: it is how you plan a run
+# on a machine that has not got it yet.
+if [ "$MODE" = "run" ]; then
+  take_lock
+  require_powerpoint
+  check_automation_permission
+fi
+setup_workspace
+
 # The log records deck paths and file names, so it must not land in the source
 # tree - this repo is public and the decks are not. Keep it beside the archive
 # being built; fall back to the (auto-deleted) workspace when there is no --out.
 LOG="${PPTXTRACTOR_LOG:-${OUTROOT:+$OUTROOT/pptxtractor.log}}"
 LOG="${LOG:-$WORK/pptxtractor.log}"
 mkdir -p "$(dirname "$LOG")" 2>/dev/null
-trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK"; [ -n "$LOCK" ] && rm -rf "$LOCK"' EXIT
 
 # Force-quitting PowerPoint mid-export wedges it: it comes back with no window,
 # a pinned core, and every open failing with -9074 until killed with -9.
@@ -294,3 +436,11 @@ done < <(find "$ROOT" -type f -iname "*.pptx" -print0 | sort -z)
 
 echo
 echo "done: $ok exported, $skip skipped, $fail failed   (mode=$MODE)"
+
+# Exit non-zero when decks failed. The run is still resumable and the decks that
+# worked are on disk - this reports the outcome rather than changing it - but a
+# script or agent driving this needs to see failure without parsing stdout.
+# 0 = everything asked for was produced, 1 = some deck failed,
+# 2 = bad arguments, 3 = PowerPoint missing or too old, 4 = automation denied.
+[ "$fail" -gt 0 ] && exit 1
+exit 0

@@ -2,7 +2,34 @@
 
 ## Unreleased
 
-Fixes found by running the tool over a 384-deck library.
+Fixes found by running the tool over a 384-deck library, plus the checks a
+public release needs.
+
+### Ready for someone else's machine
+
+- **`export` says so plainly when PowerPoint is missing**, with a link to get
+  it, instead of failing somewhere further in. It also refuses versions older
+  than 2016, whose AppleScript dictionary has no `save as PDF`.
+- **The Automation permission prompt is handled.** macOS asks once, per calling
+  program, before one app may control another; until it is granted every command
+  returns `-1743` and the run looks wedged. That is now detected and explained.
+- **A PowerPoint sitting on a dialog no longer hangs the start-up probe.** A
+  fresh install can stop on sign-in, activation or "What's New"; every probe is
+  now bounded and says what to clear.
+- **Two exports can no longer fight over one PowerPoint.** The exporter closes
+  open presentations before each deck, so a concurrent run would sabotage the
+  first. A lock refuses the second, and clears itself if a run died.
+- **The workspace is derived from PowerPoint's real bundle id**, not a hardcoded
+  path, and falling back to a temp folder now warns instead of silently taking
+  the slow, prompt-ridden route.
+- **`export` exits non-zero when decks fail** (1), and has distinct codes for a
+  missing PowerPoint (3), denied automation (4), an unresponsive app (5) and a
+  held lock (6). Scripts and agents can act on the outcome without parsing
+  stdout.
+- CI now proves the no-PowerPoint paths on a runner that genuinely has none.
+- Requirements are stated: macOS 11+, PowerPoint 2016+, Python 3.9+.
+
+### Correctness
 
 - **Hidden slides no longer shift the page map.** PowerPoint omits `show="0"`
   slides from a PDF export, but the expansion counted them, so `slides.json`

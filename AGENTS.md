@@ -6,6 +6,21 @@ Full usage in [README.md](README.md); the workflow an agent should follow is in
 
 ## Contract
 
+Exit status is meaningful — check it rather than parsing stdout:
+
+| code | meaning |
+|-----:|---------|
+| 0 | everything asked for was produced |
+| 1 | one or more decks failed; the rest are on disk and the run resumes |
+| 2 | bad arguments |
+| 3 | PowerPoint missing, or older than 2016 |
+| 4 | not allowed to control PowerPoint (`-1743`) — needs a human, once |
+| 5 | PowerPoint did not answer; it is sitting on a dialog |
+| 6 | another export already holds the lock |
+
+Codes 3-6 all need a person at the keyboard. Do not retry them in a loop —
+report them and say what the user has to do.
+
 - `audit <folder> [--json FILE]` — JSON on stdout (or to FILE), human summary on
   stderr. Read-only, no PowerPoint. Exit 0 on success, 2 on a bad argument.
 - `export --root <folder> --out <folder>` — idempotent. Decks that already have
@@ -35,6 +50,14 @@ container** — that reintroduces the dialog and every export will appear to han
 
 Error `-9074` from an `open` command is consistent with the same cause: the
 sandbox refusing a path.
+
+## Before you drive `export`
+
+`export --dry-run` needs no PowerPoint, so use it to plan a run and to confirm
+paths on a machine that may not have PowerPoint at all. A real run preflights
+for you: PowerPoint present, new enough, scriptable, answering, and no other
+export in progress. Each of those failures exits with its own code and a message
+written for the user rather than for you.
 
 ## Hidden slides
 

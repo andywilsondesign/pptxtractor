@@ -35,7 +35,11 @@ pptxtractor - bulk-extract faithful representations from PowerPoint decks.
 
   pptxtractor version | help
 
-Requires macOS and Microsoft PowerPoint (audit and render need neither).
+Requires macOS. `export` drives Microsoft PowerPoint (2016 or newer) and
+cannot run without it; `audit` and `render` need neither.
+
+Exit status: 0 all good, 1 one or more decks failed, 2 bad arguments,
+3 PowerPoint missing or too old, 4 not allowed to control PowerPoint.
 USAGE
 }
 

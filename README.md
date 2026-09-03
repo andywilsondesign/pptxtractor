@@ -16,18 +16,39 @@ gradients, shadows, masters and embedded fonts come out exactly as they look on
 screen. Everything else — reading the animation timing tree, pulling media,
 attaching notes, rasterising — is done directly against the file and the PDF.
 
-The practical shape of this: **you need PowerPoint once, not forever.**
-Microsoft offers a one-month Microsoft 365 trial. That is enough to point this
+The practical shape of this: **you need PowerPoint once, not forever.** Point it
 at a decade of decks, walk away, and come back to an archive you can mine
-indefinitely without a licence. Built for designers, researchers and consultants
-sitting on hundreds of old presentations that hold portfolio material.
+indefinitely — the PDFs stay useful whether or not you still have a licence.
+Built for designers, researchers and consultants sitting on hundreds of old
+presentations that hold portfolio material.
 
 ## Requirements
 
-- macOS
-- Microsoft PowerPoint — for `export` only. `audit` and `render` need neither.
+- macOS 11 Big Sur or later
+- **Microsoft PowerPoint for Mac, 2016 or newer** — for `export` only.
+  `audit` and `render` never touch it, and `export --dry-run` works without it.
 - Xcode Command Line Tools, to build the renderer (`xcode-select --install`)
-- Python 3 (system Python is fine — no third-party packages)
+- Python 3.9 or later (the system Python is fine — no third-party packages)
+
+### About the PowerPoint requirement
+
+There is no way around this one. `export` works by driving the real PowerPoint
+app, which is exactly what keeps your licensed fonts, gradients, masters and
+layouts intact — the thing every generic .pptx converter gets wrong. Nothing
+else on the machine can stand in for it.
+
+Any licensed copy of PowerPoint for Mac 2016 or newer works, including the one
+in a [Microsoft 365 subscription](https://www.microsoft.com/en-us/microsoft-365/powerpoint).
+Microsoft usually offers a free trial, which is enough to run this over a whole
+library in an afternoon.
+
+**You need it once, not forever.** Point this at a decade of decks, walk away,
+and the archive it leaves behind — vector PDFs you can mine at any resolution —
+outlives the subscription. `render` keeps working long after the licence lapses.
+
+Office 2011 is not supported: its AppleScript dictionary predates the
+`save as PDF` verb this relies on, and it is long out of support. `export`
+checks the version at startup and tells you if it is too old.
 
 Windows is not supported. The export path is AppleScript driving the Mac
 PowerPoint app; a Windows port would use PowerPoint's COM automation and
@@ -117,6 +138,13 @@ verbatim and about 1 KB per note is appended. Nothing is re-encoded.
 
 ## Known limits
 
+- **The first run asks macOS for permission to control PowerPoint.** Approve it
+  and it never asks again. If you miss the prompt or decline it, `export` stops
+  with error `-1743` and tells you where to fix it: System Settings → Privacy &
+  Security → Automation.
+- **One export at a time.** The exporter closes open presentations before each
+  deck, so two runs would sabotage each other. A second run is refused while the
+  first holds the lock.
 - **Hidden slides are not exported.** PowerPoint leaves `show="0"` slides out
   of a PDF, so the archive does too, and the page map skips them. If you want a
   hidden slide in the archive, unhide it in PowerPoint before exporting.

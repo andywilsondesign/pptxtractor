@@ -18,3 +18,18 @@ jobs:
         run: |
           ./bin/pptxtractor version
           ./bin/pptxtractor help > /dev/null
+
+      # These runners have no Office licence, which makes them the right place
+      # to prove the no-PowerPoint paths behave: export must refuse clearly
+      # (exit 3) while audit, render and --dry-run carry on working.
+      - name: Behaves without PowerPoint
+        run: |
+          mkdir -p /tmp/decks
+          ./bin/pptxtractor audit /tmp/decks > /dev/null
+          ./bin/pptxtractor export --root /tmp/decks --out /tmp/out --dry-run > /dev/null
+          set +e
+          ./bin/pptxtractor export --root /tmp/decks --out /tmp/out > /tmp/msg 2>&1
+          code=$?
+          set -e
+          test "$code" -eq 3 || { echo "expected exit 3, got $code"; cat /tmp/msg; exit 1; }
+          grep -q "microsoft.com" /tmp/msg || { echo "no install link in the message"; exit 1; }
