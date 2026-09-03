@@ -16,6 +16,12 @@ from collections import Counter, defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import buildstates            # single definition of what counts as a build state
 
+# A 333 MB deck opened and then sat at 0% CPU indefinitely, unresponsive even to
+# Accessibility queries; PowerPoint never recovered on its own. Decks this size
+# are worth pulling out and handling on their own rather than discovering them
+# an hour into a run, so audit flags them.
+OVERSIZED_BYTES = 200 * 1000 * 1000
+
 VIDEO = {'.mp4', '.mov', '.m4v', '.avi', '.wmv', '.mpg', '.mpeg', '.mkv', '.webm', '.asf', '.3gp'}
 AUDIO = {'.mp3', '.wav', '.m4a', '.aac', '.wma', '.aiff', '.au', '.mid', '.midi'}
 SKIP_FONTS = {'Wingdings', 'Wingdings 2', 'Wingdings 3', 'Webdings', 'Symbol', 'Arial Unicode MS'}
@@ -288,6 +294,8 @@ def audit(root):
             "noted_slides": sum(d["noted_slides"] for d in decks),
             "notes_chars": sum(d["notes_chars"] for d in decks),
             "redundant_copies": redundant,
+            "oversized_decks": sum(1 for d in decks if d["bytes"] >= OVERSIZED_BYTES),
+            "oversized_bytes_threshold": OVERSIZED_BYTES,
         },
     }
 
@@ -321,6 +329,26 @@ def main(argv):
            s["animated_slides"], s["build_states"],
            s["animated_gifs"], s["videos"], s["external_media"], s["noted_slides"],
            s["redundant_copies"]))
+
+    # Things that will cost time or fidelity later, named now while it is cheap
+    # to act on them.
+    big = sorted((d for d in result["decks"] if d["bytes"] >= OVERSIZED_BYTES),
+                 key=lambda d: -d["bytes"])
+    if big:
+        sys.stderr.write(
+            "\n  %d deck%s over %d MB - large decks can hang PowerPoint; export "
+            "these on their own:\n" % (len(big), "" if len(big) == 1 else "s",
+                                       OVERSIZED_BYTES // 1000000))
+        for d in big[:5]:
+            sys.stderr.write("    %6.0f MB  %s\n" % (d["bytes"] / 1e6, d["name"]))
+        if len(big) > 5:
+            sys.stderr.write("    ... and %d more (see the JSON)\n" % (len(big) - 5))
+    bad = [d for d in result["decks"] if d["error"]]
+    if bad:
+        sys.stderr.write("\n  %d file%s could not be read at all:\n"
+                         % (len(bad), "" if len(bad) == 1 else "s"))
+        for d in bad[:5]:
+            sys.stderr.write("    %s  (%s)\n" % (d["name"], d["error"]))
     return 0
 
 

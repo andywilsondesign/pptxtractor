@@ -102,11 +102,33 @@ pptxtractor audit ~/Decks --json audit.json
 Reports, per deck: slides, aspect ratio, fonts that *will* be substituted,
 animation build counts, embedded media, speaker notes, and likely duplicates.
 
-**Export the archive:**
+It also names the two things worth dealing with before you start: decks big
+enough to hang PowerPoint, and files it could not read at all.
+
+**Export the archive.** A whole tree, or a single deck:
 
 ```
-pptxtractor export --root ~/Decks --out /Volumes/Archive --states
+pptxtractor export ~/Decks --out /Volumes/Archive --states
+pptxtractor export "~/Decks/Acme Q3.pptx" --out /Volumes/Archive
 ```
+
+Without `--out`, exports go to `~/Documents/pptxtractor/<today>/`, and the run
+tells you so before it starts and again when it finishes.
+
+**Where each export lands** is up to you:
+
+| `--layout` | result |
+|---|---|
+| `mirror` (default) | recreates your source folders under `--out` |
+| `beside` | writes next to each deck, in its own source folder |
+| `flat` | every export in one folder |
+
+**Running it again** skips decks that already have an export, so a stopped run
+resumes for free. When something *has* been exported before, `--on-conflict`
+decides: `ask` (the default in a terminal), `skip`, `overwrite`, or `new` to
+keep both. Answer a prompt with `!` — `o!`, `s!` — to apply it to every
+remaining deck. Outside a terminal the default is always `skip`, so scripts and
+agents behave the same way every time and never block on a prompt.
 
 **Render images later, from the archive:**
 
@@ -118,7 +140,7 @@ pptxtractor render /Volumes/Archive --format jpeg --edge 2560 --only Acme
 ## What you get
 
 ```
-Acme Q3 Review/
+Acme Q3 Review (export)/
 ├── Acme Q3 Review.pdf     vector slides; builds inline; notes attached
 ├── slides.json            page -> slide/state map (when builds were expanded)
 ├── media/

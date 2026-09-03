@@ -14,10 +14,20 @@ pptxtractor - bulk-extract faithful representations from PowerPoint decks.
       counts, aspect ratios, fonts that will be substituted, animation builds,
       embedded media, speaker notes and duplicates. Emits JSON.
 
-  pptxtractor export --root <folder> --out <folder> [options]
+  pptxtractor export <folder|deck.pptx> [--out <folder>] [options]
       Export each deck to a vector PDF via PowerPoint, with speaker notes
-      attached and playable media extracted alongside.
+      attached and playable media extracted alongside. Give it a whole tree or
+      a single .pptx. Each deck becomes one "<name> (export)" folder holding
+      its PDF, media and images.
 
+      --out DIR         where the archive goes. Without it, exports land in
+                        ~/Documents/pptxtractor/<today>/
+      --layout HOW      mirror (default) recreates the source folders under
+                        --out; beside writes next to each deck instead;
+                        flat puts every export in one folder
+      --on-conflict WHAT   what to do when a deck was already exported:
+                        ask (default in a terminal), skip (default otherwise),
+                        overwrite, or new to keep both
       --states          expand animation builds into extra PDF pages
       --format FMT      also render images: png (default), jpeg, jpg
       --edge N          image long edge in px (3840 = 4K)

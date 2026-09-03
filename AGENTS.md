@@ -4,6 +4,11 @@
 Full usage in [README.md](README.md); the workflow an agent should follow is in
 [skills/pptxtractor/SKILL.md](skills/pptxtractor/SKILL.md).
 
+**This file is the single source of truth for how the tool behaves.** `CLAUDE.md`
+is a symlink to it, and `SKILL.md` points here rather than restating any of it,
+so guidance cannot drift between agents. If you are adding a rule about the
+tool's behaviour, add it here — not in a copy.
+
 ## Contract
 
 Exit status is meaningful — check it rather than parsing stdout:
@@ -23,9 +28,21 @@ report them and say what the user has to do.
 
 - `audit <folder> [--json FILE]` — JSON on stdout (or to FILE), human summary on
   stderr. Read-only, no PowerPoint. Exit 0 on success, 2 on a bad argument.
-- `export --root <folder> --out <folder>` — idempotent. Decks that already have
-  a PDF are skipped, so a stopped run resumes cleanly. Per-deck progress on
-  stdout.
+- `export <folder|deck.pptx> [--out <folder>]` — takes a whole tree or one
+  deck. Idempotent: a deck that already has an export is skipped, so a stopped
+  run resumes cleanly. Per-deck progress on stdout.
+  - Each deck becomes one `<name> (export)/` folder holding its PDF, media,
+    images and page map.
+  - `--layout mirror|beside|flat` — mirror (default) recreates the source
+    folders under `--out`; beside writes next to each deck; flat uses one folder.
+  - `--on-conflict ask|skip|overwrite|new` — what to do when a deck already has
+    an export. **Without a terminal this is always `skip`**, never `ask`, so a
+    non-interactive run can never block waiting for input. Pass it explicitly
+    when the user has asked to redo work.
+  - **Pass `--out`.** Without it the archive lands in
+    `~/Documents/pptxtractor/<today>/`. That is a sensible default for a person,
+    but you should choose the destination deliberately and tell the user where
+    it went.
 - `render <archive>` — idempotent; skips decks that already have images unless
   `--force`.
 

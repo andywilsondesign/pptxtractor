@@ -5,6 +5,31 @@
 Fixes found by running the tool over a 384-deck library, plus the checks a
 public release needs.
 
+### Where things go, and who decides
+
+- **`export` takes a path, and it can be a single deck.**
+  `pptxtractor export ~/Decks` or `pptxtractor export "Q3 Review.pptx"`.
+  `--root` still works.
+- **Each deck becomes `<name> (export)/`** — one folder holding its PDF, media,
+  images and page map, so a deck stays one object however much you ask for and
+  reads as output when it sits beside the original.
+- **`--layout mirror|beside|flat`.** Mirror (the default) recreates the source
+  folders under `--out`; beside writes next to each deck; flat puts everything
+  in one folder.
+- **Without `--out`, exports go to `~/Documents/pptxtractor/<today>/`** — said
+  before the run starts and again when it finishes, with the command to open it.
+  Writing somewhere the user did not pick is only acceptable if they are told.
+- **`--on-conflict ask|skip|overwrite|new`** decides what happens to a deck that
+  was already exported. In a terminal it asks per deck, and `!` on the answer
+  (`o!`, `s!`) applies it to everything remaining. Without a terminal it is
+  always `skip`, so nothing can block waiting for input.
+- **A run explains itself before it starts**: leave PowerPoint alone, keep the
+  machine awake, and Ctrl-C between decks is safe.
+- **`audit` flags what will cost you later** — decks over 200 MB, which can hang
+  PowerPoint, and files that cannot be read at all.
+- `--dry-run` no longer creates anything, not even the folder it would have
+  logged into.
+
 ### Ready for someone else's machine
 
 - **`export` says so plainly when PowerPoint is missing**, with a link to get
@@ -35,6 +60,9 @@ public release needs.
   the OS; what varies by Office release is which fonts ship and how newer slide
   features survive an older renderer.
 - Requirements are stated: macOS 11+, PowerPoint 2016+, Python 3.9+.
+- Agent guidance is single-sourced. `AGENTS.md` is the one place behaviour is
+  described; `CLAUDE.md` is a symlink to it and `SKILL.md` points at it instead
+  of restating it, so the two cannot drift apart.
 
 ### Correctness
 

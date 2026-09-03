@@ -38,10 +38,22 @@ Act on it:
 ## Then export
 
 ```
-pptxtractor export --root <folder> --out <folder> --states
+pptxtractor export <folder|deck.pptx> --out <folder> --states
 ```
 
-Add `--dry-run` first if the user is nervous. `--only TEXT` filters by path.
+Add `--dry-run` first if the user is nervous — it needs no PowerPoint, so it
+also works for planning on a machine that has not got it. `--only TEXT` filters
+by path.
+
+**Always pass `--out` when driving this yourself.** Without it the archive goes
+to `~/Documents/pptxtractor/<today>/`, which is fine for a person typing the
+command and reading the output, but you should be putting it somewhere the user
+asked for and telling them where that is.
+
+Re-running over the same source is safe: decks already exported are skipped.
+Without a terminal that is the fixed default, so a second run resumes rather
+than redoing work. Pass `--on-conflict overwrite` or `new` only when the user
+has asked to redo something.
 
 Default output is a vector PDF per deck. **Recommend keeping it that way.**
 Images can be rendered from the PDFs at any time and any size; rendering
@@ -59,28 +71,16 @@ PowerPoint is not involved. Safe to re-run at a different size.
 
 ## Operational rules that matter
 
-**If exports hang, suspect the sandbox before anything else.** PowerPoint can
-only open files the user picked in a dialog or files inside its own container.
-Given any other path it shows a modal "Grant File Access" prompt and waits
-silently, sometimes with no visible window. The tool avoids this by working
-inside the PowerPoint container — but if you see hangs at 0% CPU, check for that
-dialog rather than assuming the deck is at fault.
+**These live in [AGENTS.md](../../AGENTS.md), which is the single source of
+truth for how the tool behaves — the sandbox, hidden slides, oversized decks,
+what not to interrupt, and what each exit code means. Read it before driving a
+run.** It is not duplicated here so the two can never drift apart.
 
-**Never kill a running export.** Interrupting it can wedge PowerPoint: no
-window, one core pinned, every open failing, clearable only with `pkill -9` and
-a relaunch. The tool resets and retries on its own and stops after three
-consecutive failures. If you interrupt it, you cause the failure you then have
-to diagnose.
-
-**A deck that fails is usually not the deck's fault.** It is almost always a
-wedged PowerPoint. Let the tool reset and retry before concluding anything
-about the file.
-
-**The export closes open PowerPoint documents.** It refuses to start if the
-user has files open. Tell them to save and close rather than forcing it.
-
-**Long runs belong in the background.** A large library takes tens of minutes.
-Start it in the background and report progress rather than blocking.
+The short version: exit status carries the outcome (1 decks failed, 3 no
+PowerPoint, 4 automation denied, 5 unresponsive, 6 locked); codes 3-6 need a
+person, so report them rather than retrying. Never kill an export in flight —
+the tool resets and retries on its own, and interrupting it causes the wedge you
+would then have to diagnose.
 
 ## Reporting back
 

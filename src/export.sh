@@ -21,6 +21,10 @@
 set -uo pipefail
 
 ROOT=""
+LAYOUT="mirror"        # mirror | beside | flat  - see resolve_dest()
+ON_CONFLICT=""         # ask | skip | overwrite | new; resolved from the tty
+DEFAULTED_OUT=0
+SINGLE_FILE=0
 EDGE=3840
 FORMAT="png"
 MODE="run"
@@ -197,6 +201,8 @@ while [ $# -gt 0 ]; do
     --dry-run) MODE="dry"; shift ;;
     --edge) EDGE="$2"; shift 2 ;;
     --out) OUTROOT="$2"; shift 2 ;;
+    --layout) LAYOUT="$2"; shift 2 ;;
+    --on-conflict) ON_CONFLICT="$2"; shift 2 ;;
     --only) ONLY="$2"; shift 2 ;;
     --root) ROOT="$2"; shift 2 ;;
     --states) STATES=1; shift ;;
@@ -206,15 +212,49 @@ while [ $# -gt 0 ]; do
     --no-notes) NOTES=0; shift ;;
     --svg) SVG=1; shift ;;
     --deadline) DEADLINE="$2"; shift 2 ;;
-    *) echo "unknown arg: $1"; exit 2 ;;
+    # Catch-alls last: `case` takes the first match, so anything below this
+    # would never be reached.
+    -*) echo "unknown arg: $1"; exit 2 ;;
+    # A bare path is the source, so `export ~/Decks` and `export deck.pptx` work.
+    *) if [ -z "$ROOT" ]; then ROOT="$1"; shift; else echo "unexpected: $1"; exit 2; fi ;;
   esac
 done
 
 if [ -z "$ROOT" ]; then
-  echo "No source folder given. Use:  pptxtractor export --root <folder> --out <folder>"
+  echo "No source given. Use:  pptxtractor export <folder|deck.pptx> [--out <folder>]"
   exit 2
 fi
-[ -d "$ROOT" ] || { echo "Not a folder: $ROOT"; exit 2; }
+# A single deck is as valid a source as a whole tree.
+if [ -f "$ROOT" ]; then
+  case "$ROOT" in
+    *.pptx|*.PPTX) SINGLE_FILE=1 ;;
+    *) echo "Not a .pptx file: $ROOT"; exit 2 ;;
+  esac
+elif [ ! -d "$ROOT" ]; then
+  echo "No such file or folder: $ROOT"; exit 2
+fi
+case "$LAYOUT" in mirror|beside|flat) ;; *)
+  echo "--layout must be mirror, beside or flat"; exit 2 ;; esac
+case "${ON_CONFLICT:-unset}" in unset|ask|skip|overwrite|new) ;; *)
+  echo "--on-conflict must be ask, skip, overwrite or new"; exit 2 ;; esac
+
+# Where the archive lands, and saying so plainly. Writing somewhere the user did
+# not choose is only acceptable if they are told - before, during and after.
+if [ "$LAYOUT" = "beside" ]; then
+  [ -n "$OUTROOT" ] && { echo "--layout beside writes next to each deck; drop --out."; exit 2; }
+elif [ -z "$OUTROOT" ]; then
+  OUTROOT="$HOME/Documents/pptxtractor/$(date +%Y-%m-%d)"
+  DEFAULTED_OUT=1
+fi
+
+# Prompting is only safe when someone is there to answer. Without a terminal the
+# defaults are fixed and documented, so an agent or a cron job behaves the same
+# way every time.
+INTERACTIVE=0
+[ -t 0 ] && [ -t 1 ] && INTERACTIVE=1
+if [ -z "$ON_CONFLICT" ]; then
+  if [ "$INTERACTIVE" = "1" ]; then ON_CONFLICT="ask"; else ON_CONFLICT="skip"; fi
+fi
 case "$FORMAT" in png|jpeg|jpg) ;; *) echo "--format must be png, jpeg or jpg"; exit 2 ;; esac
 [ "$PNG" = "1" ] && [ ! -x "$RENDER" ] && { echo "Renderer missing. Run: make"; exit 1; }
 
@@ -232,14 +272,19 @@ setup_workspace
 # being built; fall back to the (auto-deleted) workspace when there is no --out.
 LOG="${PPTXTRACTOR_LOG:-${OUTROOT:+$OUTROOT/pptxtractor.log}}"
 LOG="${LOG:-$WORK/pptxtractor.log}"
-mkdir -p "$(dirname "$LOG")" 2>/dev/null
+# A dry run must not create anything, including the folder it would log into.
+if [ "$MODE" = "dry" ]; then
+  LOG="$WORK/pptxtractor.log"
+else
+  mkdir -p "$(dirname "$LOG")" 2>/dev/null
+fi
 trap 'rm -rf "$WORK"; [ -n "$LOCK" ] && rm -rf "$LOCK"' EXIT
 
 # Force-quitting PowerPoint mid-export wedges it: it comes back with no window,
 # a pinned core, and every open failing with -9074 until killed with -9.
 ppt_probe() {
-  osascript 2>/dev/null <<'OSA'
-tell application "Microsoft PowerPoint"
+  local r rc
+  r="$(osa_bounded 150 -e 'tell application "Microsoft PowerPoint"
   with timeout of 120 seconds
     try
       set n to count of presentations
@@ -248,8 +293,12 @@ tell application "Microsoft PowerPoint"
       return "err " & num
     end try
   end timeout
-end tell
-OSA
+end tell')"
+  rc=$?
+  # A wedged PowerPoint does not error, it simply never answers - the
+  # AppleScript-level timeout only helps once the app is listening at all.
+  [ $rc -eq 124 ] && { echo "no answer"; return 0; }
+  printf '%s\n' "$r"
 }
 
 ppt_ready() {
@@ -305,7 +354,7 @@ OSA
 
 ppt_reset() {
   local i=0
-  osascript -e 'tell application "Microsoft PowerPoint" to quit saving no' >/dev/null 2>&1
+  osa_bounded 20 -e 'tell application "Microsoft PowerPoint" to quit saving no' >/dev/null 2>&1
   while pgrep -x "Microsoft PowerPoint" >/dev/null && [ $i -lt 10 ]; do sleep 1; i=$((i+1)); done
   pkill -9 -x "Microsoft PowerPoint" 2>/dev/null
   i=0; while pgrep -x "Microsoft PowerPoint" >/dev/null && [ $i -lt 10 ]; do sleep 1; i=$((i+1)); done
@@ -318,36 +367,101 @@ ppt_reset() {
 # user has their own documents up.
 if [ "$MODE" = "run" ]; then
   if pgrep -x "Microsoft PowerPoint" >/dev/null; then
-    n="$(osascript -e 'tell application "Microsoft PowerPoint" to with timeout of 60 seconds
+    n="$(osa_bounded 75 -e 'tell application "Microsoft PowerPoint" to with timeout of 60 seconds
 return (count of presentations)
-end timeout' 2>/dev/null)"
+end timeout')"
+    # No answer means it is already wedged; ppt_reset below clears that, so do
+    # not treat silence as "the user has documents open".
+    [ $? -eq 124 ] && n=""
     if [ -n "$n" ] && [ "$n" != "0" ]; then
       echo "PowerPoint has $n document(s) open, and this script closes documents as it works."
       echo "Save and close them, then re-run."
       exit 1
     fi
   fi
+  cat <<'BANNER'
+
+This drives PowerPoint itself. While it runs:
+
+  * leave PowerPoint alone - it opens and closes a deck per file, and clicking
+    into it, opening your own file or quitting it will break the export
+  * do not let the machine sleep (prefix the command with `caffeinate -i`)
+
+You can keep using the rest of the Mac. Stopping the run is safe - press Ctrl-C
+between decks and re-run later; finished decks are skipped.
+
+BANNER
   echo "Starting from a clean PowerPoint..."
   ppt_reset
   ppt_probe >/dev/null
 fi
 
-ok=0; skip=0; fail=0; consecutive=0
+case "$LAYOUT" in
+  beside) echo "Writing each export beside its deck, under $ROOT" ;;
+  flat)   echo "Writing all exports into $OUTROOT" ;;
+  mirror) echo "Writing exports to $OUTROOT, mirroring the source folders" ;;
+esac
+if [ "$DEFAULTED_OUT" = "1" ]; then
+  echo "  (no --out given, so this is the default location - pass --out to choose)"
+fi
+echo
+
+ok=0; skip=0; fail=0; consecutive=0; CONFLICT_ALL=""
 while IFS= read -r -d '' src; do
   base="$(basename "$src")"
   case "$base" in ~\$*|._*) continue ;; esac
   [ -n "$ONLY" ] && case "$src" in *"$ONLY"*) ;; *) continue ;; esac
 
   stem="${base%.*}"
-  if [ -n "$OUTROOT" ]; then
-    rel="${src#$ROOT/}"; sub="$(dirname "$rel")"
-    [ "$sub" = "." ] && dest="$OUTROOT/$stem" || dest="$OUTROOT/$sub/$stem"
-  else
-    dest="$(dirname "$src")/$stem"
-  fi
+  # "(export)" so the folder reads as output at a glance, sitting next to decks
+  # in a shared parent. It holds everything for that deck - PDF, images, media,
+  # page map - so one deck stays one object however much you ask for.
+  folder="$stem (export)"
+  case "$LAYOUT" in
+    beside) dest="$(dirname "$src")/$folder" ;;
+    flat)   dest="$OUTROOT/$folder" ;;
+    mirror)
+      if [ "$SINGLE_FILE" = "1" ]; then
+        dest="$OUTROOT/$folder"
+      else
+        rel="${src#$ROOT/}"; sub="$(dirname "$rel")"
+        [ "$sub" = "." ] && dest="$OUTROOT/$folder" || dest="$OUTROOT/$sub/$folder"
+      fi ;;
+  esac
 
-  if [ -s "$dest/$stem.pdf" ]; then
-    echo "SKIP (already exported)  $dest"; skip=$((skip+1)); continue
+  # An existing export is a decision, not an error. Resolved once per deck, and
+  # "!" answers for every deck after it so a long run needs one answer, not 400.
+  if [ -e "$dest" ] && [ -n "$(ls -A "$dest" 2>/dev/null)" ]; then
+    action="$ON_CONFLICT"
+    if [ "$action" = "ask" ]; then
+      if [ -n "$CONFLICT_ALL" ]; then
+        action="$CONFLICT_ALL"
+      else
+        echo
+        echo "Already exported:  $dest"
+        printf '  [s]kip  [o]verwrite  [k]eep both  [q]uit   (add ! for all remaining) '
+        read -r reply </dev/tty || reply="s"
+        case "$reply" in *!) CONFLICT_ALL="$(printf '%s' "$reply" | tr -d '!')" ;; esac
+        case "${reply%!}" in
+          o|O) action="overwrite" ;;
+          k|K) action="new" ;;
+          q|Q) echo "Stopped. Nothing further was written."; break ;;
+          *)   action="skip" ;;
+        esac
+        case "$CONFLICT_ALL" in
+          o|O) CONFLICT_ALL="overwrite" ;; k|K) CONFLICT_ALL="new" ;;
+          s|S) CONFLICT_ALL="skip" ;; *) [ -n "$CONFLICT_ALL" ] && CONFLICT_ALL="skip" ;;
+        esac
+      fi
+    fi
+    case "$action" in
+      skip)      echo "SKIP (already exported)  $dest"; skip=$((skip+1)); continue ;;
+      overwrite) echo "REPLACING  $dest"; rm -rf "$dest" ;;
+      new)       n=2
+                 while [ -e "$dest ($n)" ]; do n=$((n+1)); done
+                 dest="$dest ($n)"
+                 echo "KEEPING BOTH -> $(basename "$dest")" ;;
+    esac
   fi
   # Check the deck is a readable package before PowerPoint ever sees it. A
   # truncated .pptx - a zip whose central directory never arrived - looks fine
@@ -432,10 +546,22 @@ except Exception:
     fi
   fi
   ok=$((ok+1))
-done < <(find "$ROOT" -type f -iname "*.pptx" -print0 | sort -z)
+done < <(if [ "$SINGLE_FILE" = "1" ]; then printf '%s\0' "$ROOT"
+         else find "$ROOT" -type f -iname "*.pptx" -print0 | sort -z; fi)
 
 echo
 echo "done: $ok exported, $skip skipped, $fail failed   (mode=$MODE)"
+# Say where it went once more. Someone who scrolled past the banner, or walked
+# away for an hour, should not have to hunt for their own archive.
+if [ "$ok" -gt 0 ] || [ "$skip" -gt 0 ]; then
+  if [ "$LAYOUT" = "beside" ]; then
+    echo "exports are beside each deck, under $ROOT"
+  else
+    echo "exports are in: $OUTROOT"
+    [ "$DEFAULTED_OUT" = "1" ] && echo "  (the default location - use --out next time to put them elsewhere)"
+    command -v open >/dev/null && echo "  open it with:  open \"$OUTROOT\""
+  fi
+fi
 
 # Exit non-zero when decks failed. The run is still resumable and the decks that
 # worked are on disk - this reports the outcome rather than changing it - but a
