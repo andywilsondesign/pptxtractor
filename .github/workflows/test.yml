@@ -19,6 +19,19 @@ jobs:
           ./bin/pptxtractor version
           ./bin/pptxtractor help > /dev/null
 
+      # The tractor must never reach stdout, or it corrupts `audit` JSON and
+      # anything else being piped. It should also switch itself off when the
+      # output is not a terminal, which on a CI runner it never is.
+      - name: The tractor stays out of the way
+        run: |
+          ./bin/pptxtractor plough > /tmp/plough.out 2> /tmp/plough.err
+          test ! -s /tmp/plough.out || { echo "plough wrote to stdout"; exit 1; }
+          test -s /tmp/plough.err   || { echo "plough drew nothing"; exit 1; }
+          mkdir -p /tmp/decks
+          ./bin/pptxtractor audit /tmp/decks > /tmp/a.json 2>/dev/null
+          python3 -c "import json;json.load(open('/tmp/a.json'))"
+          grep -q $'\x1b' /tmp/a.json && { echo "escape codes in JSON"; exit 1; } || true
+
       # These runners have no Office licence, which makes them the right place
       # to prove the no-PowerPoint paths behave: export must refuse clearly
       # (exit 3) while audit, render and --dry-run carry on working.

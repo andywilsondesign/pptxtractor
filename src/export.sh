@@ -46,6 +46,7 @@ DEADLINE=240
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RENDER="$HERE/../bin/pdfrender"
 WORK=""
+. "$HERE/farm.sh"
 
 # --------------------------------------------------------------------------
 # PowerPoint has to be here, and it has to be scriptable. Both are worth
@@ -391,6 +392,7 @@ You can keep using the rest of the Mac. Stopping the run is safe - press Ctrl-C
 between decks and re-run later; finished decks are skipped.
 
 BANNER
+  farm_banner
   echo "Starting from a clean PowerPoint..."
   ppt_reset
   ppt_probe >/dev/null
@@ -406,12 +408,25 @@ if [ "$DEFAULTED_OUT" = "1" ]; then
 fi
 echo
 
-ok=0; skip=0; fail=0; consecutive=0; CONFLICT_ALL=""
+# Count the field before working it, so progress has a denominator. Same
+# filters as the loop below, so the number matches what actually gets done.
+if [ "$SINGLE_FILE" = "1" ]; then
+  total_decks=1
+else
+  total_decks=$(find "$ROOT" -type f -iname "*.pptx" 2>/dev/null \
+    | grep -v '/~\$' \
+    | { if [ -n "$ONLY" ]; then grep -F -- "$ONLY"; else cat; fi; } \
+    | wc -l | tr -d ' ')
+fi
+
+ok=0; skip=0; fail=0; consecutive=0; CONFLICT_ALL=""; explained_unreadable=0
+seen=0; yield_pages=0; yield_images=0; yield_media=0
 while IFS= read -r -d '' src; do
   base="$(basename "$src")"
   case "$base" in ~\$*|._*) continue ;; esac
   [ -n "$ONLY" ] && case "$src" in *"$ONLY"*) ;; *) continue ;; esac
 
+  farm_field_end
   stem="${base%.*}"
   # "(export)" so the folder reads as output at a glance, sitting next to decks
   # in a shared parent. It holds everything for that deck - PDF, images, media,
@@ -458,7 +473,8 @@ while IFS= read -r -d '' src; do
       fi
     fi
     case "$action" in
-      skip)      echo "SKIP (already exported)  $dest"; skip=$((skip+1)); continue ;;
+      skip)      echo "SKIP (already exported)  $dest"; skip=$((skip+1))
+                 seen=$((seen+1)); farm_field "$seen" "$total_decks" "$stem"; continue ;;
       overwrite) echo "REPLACING  $dest"; rm -rf "$dest" ;;
       new)       n=2
                  while [ -e "$dest ($n)" ]; do n=$((n+1)); done
@@ -477,7 +493,16 @@ try:
 except Exception:
     sys.exit(3)' "$src" 2>/dev/null; then
     echo "SKIP (not a readable .pptx)  $src"
-    fail=$((fail+1)); continue
+    if [ "$explained_unreadable" = "0" ]; then
+      echo "       The file itself is damaged - usually a download or sync that"
+      echo "       stopped early, leaving a .pptx with no index. PowerPoint cannot"
+      echo "       open it either, so there is nothing this tool can do with it."
+      echo "       Check for another copy, or your backups."
+      explained_unreadable=1
+    fi
+    fail=$((fail+1))
+    seen=$((seen+1)); farm_field "$seen" "$total_decks" "$stem"
+    continue
   fi
 
   if [ "$MODE" = "dry" ]; then
@@ -511,6 +536,10 @@ except Exception:
     ppt_reset
     if ! to_pdf "$feed" "$pdf"; then
       echo "  PDF export failed (see $LOG)"
+      echo "       PowerPoint could not produce a PDF for this one. Very large"
+      echo "       decks are the usual cause - PowerPoint stops responding and"
+      echo "       there is no way to make it finish. The deck is fine; try it"
+      echo "       on its own, or open it and save a lighter copy."
       rm -f "$dest/slides.json"; rmdir "$dest" 2>/dev/null
       fail=$((fail+1)); consecutive=$((consecutive+1))
       if [ "$consecutive" -ge 3 ]; then
@@ -555,11 +584,19 @@ except Exception:
     fi
   fi
   ok=$((ok+1))
+  [ -s "$dest/slides.json" ] && yield_pages=$((yield_pages + $(python3 -c \
+    'import json,sys;print(len(json.load(open(sys.argv[1]))["pages"]))' \
+    "$dest/slides.json" 2>/dev/null || echo 0)))
+  [ -d "$dest/images" ] && yield_images=$((yield_images + $(ls -1 "$dest/images" 2>/dev/null | wc -l | tr -d ' ')))
+  [ -d "$dest/media" ] && yield_media=$((yield_media + $(ls -1 "$dest/media" 2>/dev/null | grep -cv '^media.json$' || echo 0)))
+  seen=$((seen+1)); farm_field "$seen" "$total_decks" "$stem"
 done < <(if [ "$SINGLE_FILE" = "1" ]; then printf '%s\0' "$ROOT"
          else find "$ROOT" -type f -iname "*.pptx" -print0 | sort -z; fi)
 
+farm_field_end
 echo
 echo "done: $ok exported, $skip skipped, $fail failed   (mode=$MODE)"
+farm_yield "$ok" "$yield_pages" "$yield_images" "$yield_media"
 # Say where it went once more. Someone who scrolled past the banner, or walked
 # away for an hour, should not have to hunt for their own archive.
 if [ "$ok" -gt 0 ] || [ "$skip" -gt 0 ]; then

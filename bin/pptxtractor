@@ -43,6 +43,10 @@ pptxtractor - bulk-extract faithful representations from PowerPoint decks.
       Render images from PDFs the export already produced. PowerPoint is not
       involved, so this is fast and repeatable at any size.
 
+  pptxtractor plough
+      Watch the tractor go. Does nothing else - it is there so you can see
+      what a run looks like without committing a library to it.
+
   pptxtractor version | help
 
 Requires macOS. `export` drives Microsoft PowerPoint (2016 or newer) and
@@ -59,6 +63,7 @@ case "$cmd" in
   export)  exec bash "$SRC/export.sh" "$@" ;;
   render)  exec bash "$SRC/render.sh" "$@" ;;
   version) echo "pptxtractor 1.0.0" ;;
+  plough|demo) . "$SRC/farm.sh"; farm_demo ;;
   help|-h|--help) usage ;;
   *) echo "unknown command: $cmd"; echo; usage; exit 2 ;;
 esac

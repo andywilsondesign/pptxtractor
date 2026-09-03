@@ -5,6 +5,22 @@
 Fixes found by running the tool over a 384-deck library, plus the checks a
 public release needs.
 
+### A tractor
+
+- **`export` now shows a field being ploughed** — furrows for decks done, crop
+  for what is left — and a yield when it finishes. A long run is mostly waiting,
+  and this makes the waiting legible.
+- **`pptxtractor plough`** plays the whole thing on demand, so you can see what
+  a run looks like without committing a library to it.
+- It stays out of the way: stderr only, never stdout, and switched off entirely
+  when the output is not a terminal. Scripts, agents and CI see plain text.
+  `NO_COLOR=1` or `PPTXTRACTOR_PLAIN=1` turn it off for people too. CI checks
+  that it cannot leak into `audit`'s JSON.
+- **Failures explain whose problem they are.** An unreadable deck is a damaged
+  file that PowerPoint cannot open either; a deck PowerPoint gives up on is
+  usually just too large. Neither is something the user did wrong, and the
+  messages now say so.
+
 ### Where things go, and who decides
 
 - **Images are named for the slide they show, not the PDF page they were.**

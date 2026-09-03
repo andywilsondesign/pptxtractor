@@ -1,5 +1,18 @@
 # pptxtractor
 
+```
+           ||
+          _||_______
+         |  ______  |
+         | |      | |          p p t x t r a c t o r
+       __|_|______|_|__
+      |                 \      ploughing your slides
+      |  .---.      .-.  |     for everything worth keeping
+      '-(  @  )----( o )-'
+         '---'      '-'
+    ....................................................
+```
+
 Bulk-extract faithful representations of PowerPoint slides — vector PDFs,
 animation build states, speaker notes, and the GIFs and video buried inside the
 files — in one pass over a whole library.
@@ -136,6 +149,39 @@ agents behave the same way every time and never block on a prompt.
 pptxtractor render /Volumes/Archive --format png  --edge 3840
 pptxtractor render /Volumes/Archive --format jpeg --edge 2560 --only Acme
 ```
+
+## What it looks like running
+
+A long run is mostly waiting, so there is a tractor.
+
+```
+EXPORT  ~/Decks/2024/Acme Q3 Review.pptx
+  builds: 3 slides expanded into 8 extra pages
+  notes: 15 slides, 15231 characters
+  -> Acme Q3 Review.pdf  (3.4M)
+  media: 8 animated-gif
+  ~~~~~~~~🚜..........................  1/24  Acme Q3 Review
+```
+
+Furrows behind it are decks already done; the crop ahead is what is left. At the
+end it tells you what came off the field:
+
+```
+done: 24 exported, 0 skipped, 0 failed   (mode=run)
+  yield: 24 decks, 612 pages, 612 stills, 37 media files
+exports are in: /Volumes/Archive
+```
+
+Want to see it without committing a library to it?
+
+```
+pptxtractor plough
+```
+
+The tractor only appears when a person is watching. It writes to stderr, never
+to stdout, and it switches itself off when the output is piped or redirected —
+so scripts, agents and CI see plain text and nothing else. `NO_COLOR=1` or
+`PPTXTRACTOR_PLAIN=1` turn it off entirely.
 
 ## What you get
 
@@ -274,6 +320,36 @@ Builds a .pptx and a PDF from scratch and checks the audit, the animation
 expansion, notes extraction and the PDF incremental update. The
 PowerPoint-driven export is not covered — CI runners have no Office licence, so
 that path is only exercised by running it for real.
+
+## Credit, and saying hello
+
+Built by **Andy Wilson** — [andywilsondesign.com](https://andywilsondesign.com).
+
+It exists because I had a decade of my own decks and no good way to get the work
+back out of them. If it saves you the same trouble, that is the whole point, and
+you owe me nothing.
+
+If you would like to say thanks anyway:
+
+- ⭐ **Star the repo.** It is the cheapest signal that this was worth building.
+- 🗣 **Tell someone** sitting on an archive of old presentations.
+- 🐛 **Open an issue** when something breaks. A deck that fails is far more
+  useful to me than a deck that works — include what `pptxtractor audit` says
+  about it, and leave the deck itself out of it if it is not yours to share.
+- ✍️ **Credit it** if you use it in something public: a link back is plenty.
+
+No sponsorship, no telemetry, no account, nothing to sign up for. It runs
+entirely on your machine and never sends your decks anywhere.
+
+## Contributing
+
+Issues and pull requests are welcome. `make test` covers everything that does
+not need PowerPoint — please keep it green, and add a case for whatever you fix.
+The PowerPoint-driven export cannot be tested in CI, so if you change
+`src/export.sh`, say in the PR what you actually ran it against.
+
+[AGENTS.md](AGENTS.md) is the single source of truth for how the tool behaves;
+if you change behaviour, change it there rather than in a copy.
 
 ## Licence
 
