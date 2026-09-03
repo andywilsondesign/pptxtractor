@@ -27,6 +27,13 @@ public release needs.
   held lock (6). Scripts and agents can act on the outcome without parsing
   stdout.
 - CI now proves the no-PowerPoint paths on a runner that genuinely has none.
+- Documented how to run over a large library: `audit` first, `caffeinate -i` so
+  an idle-sleeping machine is not mistaken for a hung one, and export to local
+  disk rather than into a synced folder.
+- Documented what the PowerPoint version does and does not change. The PDF is
+  written by macOS's Quartz engine, not by PowerPoint, so its structure follows
+  the OS; what varies by Office release is which fonts ship and how newer slide
+  features survive an older renderer.
 - Requirements are stated: macOS 11+, PowerPoint 2016+, Python 3.9+.
 
 ### Correctness

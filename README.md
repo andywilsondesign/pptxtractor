@@ -50,6 +50,29 @@ Office 2011 is not supported: its AppleScript dictionary predates the
 `save as PDF` verb this relies on, and it is long out of support. `export`
 checks the version at startup and tells you if it is too old.
 
+### Does the PowerPoint version change the output?
+
+Less than you would expect, because **PowerPoint does not write the PDF — macOS
+does.** Every file this produces reports `macOS Version …` as its producer:
+PowerPoint draws the slides and hands them to the system's Quartz PDF engine.
+So the PDF structure — version, cross-reference format, how text and vectors are
+encoded — follows your macOS, not your Office release. That is also why
+attaching notes is safe across Office versions: it needs a classic
+cross-reference table, and Quartz always writes one. (If that ever changed, the
+notes step refuses with a clear error rather than producing a broken file.)
+
+What *does* vary with the PowerPoint version:
+
+- **Which fonts are installed.** Office ships its own — recent releases include
+  Aptos, older ones Calibri. A deck can therefore substitute on one machine and
+  not on another. `audit` reports what your machine will actually do.
+- **Newer slide features.** A deck built in a current PowerPoint and exported by
+  an older one may lose or approximate things that version never supported. If
+  you have the choice, export with a PowerPoint at least as new as the decks.
+
+Within 2016 → Microsoft 365 the export path itself is unchanged: same
+AppleScript verb, same sandbox model, same container layout.
+
 Windows is not supported. The export path is AppleScript driving the Mac
 PowerPoint app; a Windows port would use PowerPoint's COM automation and
 `ExportAsFixedFormat`, which is a fair amount of work but a clean fork.
@@ -135,6 +158,30 @@ not page content. The same file gives you clean imagery and the full narrative.
 
 They are written as an *incremental update* — the original PDF bytes are copied
 verbatim and about 1 KB per note is appended. Nothing is re-encoded.
+
+## Running over a large library
+
+`audit` first, always. It is instant, needs no PowerPoint, and tells you what
+you are in for — including the two things worth fixing before you start:
+duplicates, and fonts you should install.
+
+Then, for anything longer than a few minutes:
+
+```
+caffeinate -i pptxtractor export --root ~/Decks --out /Volumes/Archive --states
+```
+
+`caffeinate -i` stops the machine idle-sleeping mid-run. An export that sleeps
+looks exactly like an export that hung, and burns a `--deadline` before it
+recovers.
+
+**Export to local disk, not to a synced folder.** Writing straight into Dropbox,
+iCloud Drive, Proton Drive or a network share means the client tries to upload
+part-written PDFs while PowerPoint is still producing them, which is slow at
+best. Export locally, check the result, then copy the finished archive up.
+
+The run is resumable — decks that already have a PDF are skipped — so stopping
+it and restarting later costs nothing.
 
 ## Known limits
 
