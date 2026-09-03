@@ -441,7 +441,10 @@ while IFS= read -r -d '' src; do
         echo "Already exported:  $dest"
         printf '  [s]kip  [o]verwrite  [k]eep both  [q]uit   (add ! for all remaining) '
         read -r reply </dev/tty || reply="s"
-        case "$reply" in *!) CONFLICT_ALL="$(printf '%s' "$reply" | tr -d '!')" ;; esac
+        # A terminal can hand back a carriage return, which would stop "s!"
+        # matching the all-remaining pattern and re-ask on every deck.
+        reply="$(printf '%s' "$reply" | tr -d '[:space:]')"
+        case "$reply" in *!) CONFLICT_ALL="${reply%!}" ;; esac
         case "${reply%!}" in
           o|O) action="overwrite" ;;
           k|K) action="new" ;;
