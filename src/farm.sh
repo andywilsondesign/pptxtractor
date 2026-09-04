@@ -33,17 +33,14 @@ farm_tractor_glyph() {
 farm_banner() {
   farm_wants_pictures || return 0
   cat >&2 <<'TRACTOR'
-
-           ||
-          _||_______
-         |  ______  |
-         | |      | |          p p t x t r a c t o r
-       __|_|______|_|__
-      |                 \      ploughing your slides
-      |  .---.      .-.  |     for everything worth keeping
-      '-(  @  )----( o )-'
-         '---'      '-'
-    ....................................................
+            o          p p t x t r a c t o r
+           _|_
+        __|   |__      ploughing your slides
+       |          |____   for everything worth keeping
+       |   ___         |
+       |__|   |________|
+      (( O ))    (o)(o)
+   ....................................................
 
 TRACTOR
 }

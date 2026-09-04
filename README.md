@@ -1,16 +1,14 @@
 # pptxtractor
 
 ```
-           ||
-          _||_______
-         |  ______  |
-         | |      | |          p p t x t r a c t o r
-       __|_|______|_|__
-      |                 \      ploughing your slides
-      |  .---.      .-.  |     for everything worth keeping
-      '-(  @  )----( o )-'
-         '---'      '-'
-    ....................................................
+            o          p p t x t r a c t o r
+           _|_
+        __|   |__      ploughing your slides
+       |          |____   for everything worth keeping
+       |   ___         |
+       |__|   |________|
+      (( O ))    (o)(o)
+   ....................................................
 ```
 
 Bulk-extract faithful representations of PowerPoint slides — vector PDFs,
@@ -340,6 +338,9 @@ If you would like to say thanks anyway:
 
 No sponsorship, no telemetry, no account, nothing to sign up for. It runs
 entirely on your machine and never sends your decks anywhere.
+
+The tractor was drawn for this project, so it is covered by the same MIT licence
+as the rest of it — take it, change it, put it in your own thing.
 
 ## Contributing
 
