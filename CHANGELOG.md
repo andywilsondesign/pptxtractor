@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.0.1
+
+Found by a fresh pair of eyes cloning the repo cold, and by pointing it at a
+real 156-deck library.
+
+- **A trailing slash on the source path scattered the output.** `export decks/`
+  put the entire absolute source path underneath `--out`, instead of one folder
+  per deck. Tab-completing a directory adds that slash, so this was the normal
+  way to type it. Paths are normalised now, and `tests/test_paths.sh` covers all
+  four slash combinations.
+- **Flattening no longer loses decks.** With `--layout flat`, two different
+  decks sharing a name both claimed one folder, and the second was reported as
+  "already exported" and skipped — a real library here had ten distinct decks
+  called `Personas Template.pptx`, one per cohort, so nine would have vanished
+  while the run reported success. An export folder now records which deck wrote
+  it, so "I already did this one" is told apart from "a different deck wants
+  this name", and the latter is named after the folder that distinguishes it:
+  `Personas Template (Kiwi) (export)`. Names the tree uses more than once get
+  that treatment from the first deck onwards, so a set reads consistently.
+- **`--dry-run` predicts clashes** instead of only revealing them mid-run.
+- **`audit` accepts a single .pptx**, matching `export`.
+- The pre-run notice says that recovering from a stuck deck force-quits
+  PowerPoint, so anything you have open goes with it.
+
 ## Unreleased
 
 Fixes found by running the tool over a 384-deck library, plus the checks a

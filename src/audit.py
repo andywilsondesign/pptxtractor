@@ -242,6 +242,8 @@ def inspect(path, avail):
 
 
 def find_decks(root):
+    if os.path.isfile(root):
+        return [root]
     out = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if not d.startswith('.')]
@@ -304,8 +306,12 @@ def main(argv):
     if not argv or argv[0] in ('-h', '--help'):
         print(__doc__.strip()); return 0
     root = argv[0]
-    if not os.path.isdir(root):
-        sys.stderr.write("not a directory: %s\n" % root); return 2
+    # A single deck is as valid a thing to inspect as a whole tree - `export`
+    # already takes either, and there is no reason for this to be fussier.
+    if not os.path.isdir(root) and not os.path.isfile(root):
+        sys.stderr.write("no such file or folder: %s\n" % root); return 2
+    if os.path.isfile(root) and not root.lower().endswith('.pptx'):
+        sys.stderr.write("not a .pptx file: %s\n" % root); return 2
     out = None
     if '--json' in argv:
         i = argv.index('--json')

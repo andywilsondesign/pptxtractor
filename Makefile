@@ -12,6 +12,7 @@ $(BIN): $(SRC)
 
 test: $(BIN)
 	python3 tests/test_core.py
+	bash tests/test_paths.sh
 
 clean:
 	rm -f $(BIN)

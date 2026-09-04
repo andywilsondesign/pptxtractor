@@ -14,6 +14,11 @@ jobs:
         run: make
       - name: Core tests
         run: python3 tests/test_core.py
+
+      # Destination picking, which is where a bad run scatters files across a
+      # disk. All --dry-run, so it needs no PowerPoint.
+      - name: Path and layout tests
+        run: bash tests/test_paths.sh
       - name: CLI smoke test
         run: |
           ./bin/pptxtractor version

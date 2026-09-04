@@ -157,6 +157,63 @@ DENIED
 # Working inside its container sidesteps the dialog completely: no grant is
 # needed, and nothing has to be clicked. We copy decks in and copy the PDF back
 # out with the shell, which is not sandboxed.
+# Destinations claimed earlier in this run. Without this a --dry-run cannot see
+# a clash at all - nothing has been written yet, so every deck looks free - and
+# the user only discovers it mid-run. Tracked in a file rather than an array
+# because macOS ships bash 3.2, which has no associative arrays.
+claim_dest() { printf '%s\n' "$1" >> "$CLAIMED"; }
+dest_claimed() { [ -s "$CLAIMED" ] && grep -Fxq -- "$1" "$CLAIMED"; }
+
+# Provenance. An export folder records which deck made it, so a later run can
+# tell "I already did this one" from "a different deck wants this name".
+write_source_record() {
+  local dest="$1" src="$2"
+  printf '{\n  "path": %s,\n  "bytes": %s,\n  "exported": %s\n}\n' \
+    "\"$(printf '%s' "$src" | sed 's/\\/\\\\/g; s/"/\\"/g')\"" \
+    "$(wc -c < "$src" 2>/dev/null | tr -d ' ')" \
+    "\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"" > "$dest/source.json" 2>/dev/null || true
+}
+
+source_of() {
+  python3 -c 'import json,sys
+try: print(json.load(open(sys.argv[1]))["path"])
+except Exception: print("")' "$1/source.json" 2>/dev/null
+}
+
+# True when this export folder was made by this same deck. Folders written
+# before provenance existed have no record; treat those as a match so an older
+# archive still resumes rather than duplicating itself.
+same_source() {
+  local dest="$1" src="$2" recorded
+  [ -f "$dest/source.json" ] || return 0
+  recorded="$(source_of "$dest")"
+  [ -z "$recorded" ] && return 0
+  [ "$recorded" = "$src" ]
+}
+
+# Name a colliding deck after the folders that actually tell it apart: the
+# parent, then the grandparent, then a number. "Personas Template (Kiwi)".
+disambiguate() {
+  local dest="$1" src="$2" folder="$3" parent base try n
+  base="$(dirname "$dest")"
+  parent="$(basename "$(dirname "$src")")"
+  for try in "$parent" "$(basename "$(dirname "$(dirname "$src")")")/$parent"; do
+    [ -z "$try" ] || [ "$try" = "/" ] && continue
+    candidate="$base/${folder% (export)} ($(printf '%s' "$try" | tr '/' '-')) (export)"
+    if ! dest_claimed "$candidate" \
+       && { [ ! -e "$candidate" ] || same_source "$candidate" "$src"; }; then
+      printf '%s' "$candidate"; return 0
+    fi
+  done
+  n=2
+  while dest_claimed "$base/${folder% (export)} ($n) (export)" \
+        || { [ -e "$base/${folder% (export)} ($n) (export)" ] \
+             && ! same_source "$base/${folder% (export)} ($n) (export)" "$src"; }; do
+    n=$((n+1))
+  done
+  printf '%s' "$base/${folder% (export)} ($n) (export)"
+}
+
 # One PowerPoint, one export at a time. Two runs would close each other's
 # documents mid-save - the exporter clears open presentations before each deck -
 # and the failures would look random. mkdir is atomic, so it works as a lock.
@@ -177,6 +234,7 @@ take_lock() {
   echo $$ > "$LOCK/pid"
 }
 
+CLAIMED=""
 setup_workspace() {
   local container=""
   [ -n "$PPT_BUNDLE_ID" ] && container="$HOME/Library/Containers/$PPT_BUNDLE_ID/Data"
@@ -194,6 +252,7 @@ setup_workspace() {
     WORK="$(mktemp -d /tmp/pptxtractor.XXXXXX)"
   fi
   mkdir -p "$WORK"
+  CLAIMED="$WORK/claimed.txt"; : > "$CLAIMED"
 }
 
 while [ $# -gt 0 ]; do
@@ -234,6 +293,13 @@ if [ -f "$ROOT" ]; then
 elif [ ! -d "$ROOT" ]; then
   echo "No such file or folder: $ROOT"; exit 2
 fi
+# Strip trailing slashes before anything uses these as prefixes. "$ROOT/" with
+# a trailing slash makes the rel= prefix-strip below miss entirely, and the
+# whole absolute source path ends up recreated inside --out. Tab-completing a
+# directory adds that slash, so this is the normal way to type it.
+while [ "$ROOT" != "/" ] && [ "${ROOT%/}" != "$ROOT" ]; do ROOT="${ROOT%/}"; done
+while [ "$OUTROOT" != "/" ] && [ "${OUTROOT%/}" != "$OUTROOT" ]; do OUTROOT="${OUTROOT%/}"; done
+
 case "$LAYOUT" in mirror|beside|flat) ;; *)
   echo "--layout must be mirror, beside or flat"; exit 2 ;; esac
 case "${ON_CONFLICT:-unset}" in unset|ask|skip|overwrite|new) ;; *)
@@ -386,6 +452,8 @@ This drives PowerPoint itself. While it runs:
 
   * leave PowerPoint alone - it opens and closes a deck per file, and clicking
     into it, opening your own file or quitting it will break the export
+  * do not open your own presentations while this runs. Recovering from a stuck
+    deck force-quits PowerPoint, and anything you had open goes with it
   * do not let the machine sleep (prefix the command with `caffeinate -i`)
 
 You can keep using the rest of the Mac. Stopping the run is safe - press Ctrl-C
@@ -419,6 +487,20 @@ else
     | wc -l | tr -d ' ')
 fi
 
+# With --layout flat every deck lands in one folder, so any name used twice in
+# the source tree is a clash waiting to happen. Work out which names those are
+# before starting, so the *first* deck gets its context in the name too rather
+# than only the ones that follow it - otherwise one folder in a set of ten is
+# the odd one out and you cannot tell which cohort it came from.
+DUPNAMES="$WORK/dupnames.txt"; : > "$DUPNAMES"
+if [ "$LAYOUT" = "flat" ] && [ "$SINGLE_FILE" != "1" ]; then
+  find "$ROOT" -type f -iname "*.pptx" -not -name '~$*' -not -name '._*' 2>/dev/null \
+    | { if [ -n "$ONLY" ]; then grep -F -- "$ONLY"; else cat; fi; } \
+    | sed 's|.*/||; s|\.[Pp][Pp][Tt][Xx]$||' \
+    | sort | uniq -d > "$DUPNAMES" 2>/dev/null || true
+fi
+name_repeats() { [ -s "$DUPNAMES" ] && grep -Fxq -- "$1" "$DUPNAMES"; }
+
 ok=0; skip=0; fail=0; consecutive=0; CONFLICT_ALL=""; explained_unreadable=0
 seen=0; yield_pages=0; yield_images=0; yield_media=0
 while IFS= read -r -d '' src; do
@@ -443,6 +525,42 @@ while IFS= read -r -d '' src; do
         [ "$sub" = "." ] && dest="$OUTROOT/$folder" || dest="$OUTROOT/$sub/$folder"
       fi ;;
   esac
+
+  # Two very different things look identical here: the same deck exported
+  # before, and a *different* deck that happens to share a name. Flattening a
+  # tree makes the second one common - one library here had ten distinct decks
+  # all called "Personas Template.pptx", one per cohort. Treating that as
+  # "already exported" and skipping would have silently dropped nine of them and
+  # called the run a success. So check who wrote the folder before deciding.
+  # Claimed earlier in this run means a different deck, full stop - we just
+  # processed it. On disk from an earlier run is only a clash if the provenance
+  # says a different deck wrote it; a folder with no record predates provenance
+  # and is assumed to be this deck resuming.
+  clash=0
+  # A name the tree uses more than once always gets its context, first one
+  # included, so a set of same-named decks reads consistently.
+  if name_repeats "$stem"; then
+    clash=1
+  elif dest_claimed "$dest"; then
+    clash=1
+  elif [ -e "$dest" ] && [ -n "$(ls -A "$dest" 2>/dev/null)" ] && ! same_source "$dest" "$src"; then
+    clash=1
+  fi
+  if [ "$clash" = "1" ]; then
+    # A different deck wants this name. Never a conflict to resolve - just give
+    # it a name of its own, borrowed from the folders that distinguish it.
+    newdest="$(disambiguate "$dest" "$src" "$folder")"
+    if [ -n "$newdest" ]; then
+      echo "NAME CLASH  $stem"
+      echo "       another deck already exported under this name, from"
+      echo "       $(source_of "$dest")"
+      echo "       this one is from $(dirname "$src")"
+      echo "       exporting it as: $(basename "$newdest")"
+      dest="$newdest"
+    fi
+  fi
+
+  claim_dest "$dest"
 
   # An existing export is a decision, not an error. Resolved once per deck, and
   # "!" answers for every deck after it so a long run needs one answer, not 400.
@@ -511,6 +629,7 @@ except Exception:
 
   echo "EXPORT  $src"
   mkdir -p "$dest"
+  write_source_record "$dest" "$src"
   tmp="$WORK/deck.pptx"; feed="$tmp"; pdf="$WORK/deck.pdf"
   rm -f "$WORK"/*.pptx "$pdf"
   cp "$src" "$tmp" || { echo "  copy failed"; fail=$((fail+1)); continue; }
