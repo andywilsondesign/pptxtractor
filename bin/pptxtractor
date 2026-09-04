@@ -62,7 +62,7 @@ case "$cmd" in
   audit)   exec python3 "$SRC/audit.py" "$@" ;;
   export)  exec bash "$SRC/export.sh" "$@" ;;
   render)  exec bash "$SRC/render.sh" "$@" ;;
-  version) echo "pptxtractor 1.0.0" ;;
+  version) echo "pptxtractor 1.0.1" ;;
   plough|demo) . "$SRC/farm.sh"; farm_demo ;;
   help|-h|--help) usage ;;
   *) echo "unknown command: $cmd"; echo; usage; exit 2 ;;
