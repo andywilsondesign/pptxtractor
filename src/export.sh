@@ -703,7 +703,9 @@ except Exception:
       echo "       decks are the usual cause - PowerPoint stops responding and"
       echo "       there is no way to make it finish. The deck is fine; try it"
       echo "       on its own, or open it and save a lighter copy."
-      rm -f "$dest/slides.json"; rmdir "$dest" 2>/dev/null
+      # Clear everything written before the failure, or the provenance record
+      # keeps the folder alive and a later run reads it as a finished export.
+      rm -f "$dest/slides.json" "$dest/source.json"; rmdir "$dest" 2>/dev/null
       fail=$((fail+1)); consecutive=$((consecutive+1))
       if [ "$consecutive" -ge 3 ]; then
         echo "  three decks failed in a row - stopping. Open PowerPoint by hand, then re-run."
