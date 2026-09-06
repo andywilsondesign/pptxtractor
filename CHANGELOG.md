@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **A run that had to strip fonts now says so in the archive, not just in the
+  scrollback.** `FONT-SUBSTITUTIONS.txt` lands next to the exports, naming the
+  decks affected and both ways to get them at full fidelity. By the time a long
+  run finishes, the lines explaining a deck from an hour ago are thousands of
+  lines back.
+
 - **Decks with restricted embedded fonts no longer hang the export.** A deck can
   embed fonts licensed for preview-and-print only — most licensed families are,
   Graphik among them — and PowerPoint refuses to open one for editing without a
@@ -49,6 +55,12 @@ real 156-deck library.
   PowerPoint, so anything you have open goes with it.
 
 ## Unreleased
+
+- **A run that had to strip fonts now says so in the archive, not just in the
+  scrollback.** `FONT-SUBSTITUTIONS.txt` lands next to the exports, naming the
+  decks affected and both ways to get them at full fidelity. By the time a long
+  run finishes, the lines explaining a deck from an hour ago are thousands of
+  lines back.
 
 - **Decks with restricted embedded fonts no longer hang the export.** A deck can
   embed fonts licensed for preview-and-print only — most licensed families are,

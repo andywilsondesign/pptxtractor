@@ -273,6 +273,12 @@ it and restarting later costs nothing.
   indefinitely with the file open and no dialog; the per-deck `--deadline`
   watchdog is what stops one such deck stalling a whole run. Check `audit` for
   outliers before a big export.
+- **Restricted embedded fonts are handled, but you should read the report.**
+  If any deck needed its fonts stripped, `FONT-SUBSTITUTIONS.txt` appears beside
+  the archive naming them. Those decks can be recovered at full fidelity without
+  buying or installing anything: open each in PowerPoint, choose **Open
+  Read-only** when prompted, and export to PDF from there — the embedded font is
+  used in that case. Installing the font works too, and avoids the prompt.
 - **Decks with restricted embedded fonts cost two failed attempts first.**
   Fonts licensed for preview-and-print only make PowerPoint ask before opening
   the deck, and that prompt cannot be answered by a script. The export detects

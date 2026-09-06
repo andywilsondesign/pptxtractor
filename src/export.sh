@@ -515,6 +515,9 @@ fi
 name_repeats() { [ -s "$DUPNAMES" ] && grep -Fxq -- "$1" "$DUPNAMES"; }
 
 ok=0; skip=0; fail=0; consecutive=0; CONFLICT_ALL=""; explained_unreadable=0
+# Decks whose embedded fonts had to be removed to get them open at all. Their
+# output uses whatever is installed instead, so it is worth saying which.
+STRIPPED="$WORK/stripped.txt"; : > "$STRIPPED"
 seen=0; yield_pages=0; yield_images=0; yield_media=0
 while IFS= read -r -d '' src; do
   base="$(basename "$src")"
@@ -694,6 +697,7 @@ except Exception:
         if to_pdf "$WORK/nofonts.pptx" "$pdf"; then
           echo "  recovered (fonts stripped)"
           feed="$WORK/nofonts.pptx"
+          printf '%s\n' "$src" >> "$STRIPPED"
         fi
       fi
     fi
@@ -759,8 +763,41 @@ done < <(if [ "$SINGLE_FILE" = "1" ]; then printf '%s\0' "$ROOT"
          else find "$ROOT" -type f -iname "*.pptx" -print0 | sort -z; fi)
 
 farm_field_end
+
+# A run where some decks lost their embedded fonts should say so somewhere more
+# durable than the scrollback - by the time a long run finishes, the lines that
+# explained it are thousands of lines back.
+if [ -s "$STRIPPED" ] && [ "$LAYOUT" != "beside" ] && [ -n "$OUTROOT" ]; then
+  report="$OUTROOT/FONT-SUBSTITUTIONS.txt"
+  {
+    echo "Decks exported without their embedded fonts"
+    echo "==========================================="
+    echo
+    echo "These decks embed fonts licensed for preview and print only. PowerPoint"
+    echo "will not open such a deck unattended - it asks first, in a dialog no"
+    echo "script can answer - so they were exported with the embedded fonts"
+    echo "removed. Everything else about them is faithful."
+    echo
+    echo "What that means: any of those faces you do not have installed will have"
+    echo "been substituted in the PDF and images."
+    echo
+    echo "To get them at full fidelity, either:"
+    echo "  * install the fonts, then re-run with --on-conflict overwrite; or"
+    echo "  * open each deck in PowerPoint yourself, choose \"Open Read-only\""
+    echo "    when asked, and export to PDF from there - the embedded fonts are"
+    echo "    used in that case, so no licence or install is needed."
+    echo
+    sort -u "$STRIPPED" | sed 's/^/  /'
+    echo
+    echo "Generated $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } > "$report" 2>/dev/null
+fi
+
 echo
 echo "done: $ok exported, $skip skipped, $fail failed   (mode=$MODE)"
+if [ -s "$STRIPPED" ]; then
+  echo "note: $(sort -u "$STRIPPED" | wc -l | tr -d ' ') deck(s) exported without their embedded fonts - see FONT-SUBSTITUTIONS.txt"
+fi
 farm_yield "$ok" "$yield_pages" "$yield_images" "$yield_media"
 # Say where it went once more. Someone who scrolled past the banner, or walked
 # away for an hour, should not have to hunt for their own archive.
