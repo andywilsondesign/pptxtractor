@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Workspaces left by killed runs are swept up.** The EXIT trap covers a normal
+  finish and a Ctrl-C, but not a `kill -9` or a crash, and the leftovers sit
+  inside PowerPoint's container holding copies of decks. A run now removes any
+  whose process is gone, leaving live ones alone. Not done on `--dry-run`, which
+  still writes and deletes nothing.
+- The name-clash notice no longer prints a blank line when the clash was
+  predicted from the source tree rather than found on disk — there is no
+  previous deck to name in that case, so it says so.
+
 ## 1.0.1
 
 Found by a fresh pair of eyes cloning the repo cold, and by pointing it at a

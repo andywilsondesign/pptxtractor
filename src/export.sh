@@ -251,6 +251,19 @@ setup_workspace() {
     fi
     WORK="$(mktemp -d /tmp/pptxtractor.XXXXXX)"
   fi
+  # Sweep workspaces left by runs that never got to clean up after themselves.
+  # The EXIT trap handles a normal finish and a Ctrl-C, but not a kill -9 or a
+  # crash, and these sit inside PowerPoint's container holding copies of decks.
+  # Only touch ones whose process is definitely gone - another run may be live.
+  if [ "$MODE" = "run" ] && [ -n "$container" ] && [ -d "$container/tmp" ]; then
+    for stale in "$container"/tmp/pptxtractor.*; do
+      [ -d "$stale" ] || continue
+      stale_pid="${stale##*.}"
+      case "$stale_pid" in ''|*[!0-9]*) continue ;; esac
+      kill -0 "$stale_pid" 2>/dev/null && continue     # still running
+      rm -rf "$stale" 2>/dev/null
+    done
+  fi
   mkdir -p "$WORK"
   CLAIMED="$WORK/claimed.txt"; : > "$CLAIMED"
 }
@@ -551,9 +564,17 @@ while IFS= read -r -d '' src; do
     # it a name of its own, borrowed from the folders that distinguish it.
     newdest="$(disambiguate "$dest" "$src" "$folder")"
     if [ -n "$newdest" ]; then
+      # Two ways to get here: another deck already wrote this folder, or the
+      # source tree simply uses the name more than once and we spotted it up
+      # front. Only the first has a previous deck to name.
+      previous="$(source_of "$dest")"
       echo "NAME CLASH  $stem"
-      echo "       another deck already exported under this name, from"
-      echo "       $(source_of "$dest")"
+      if [ -n "$previous" ]; then
+        echo "       already exported under this name from"
+        echo "         $previous"
+      else
+        echo "       this name is used by more than one deck in the source"
+      fi
       echo "       this one is from $(dirname "$src")"
       echo "       exporting it as: $(basename "$newdest")"
       dest="$newdest"
