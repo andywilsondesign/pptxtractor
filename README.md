@@ -273,6 +273,12 @@ it and restarting later costs nothing.
   indefinitely with the file open and no dialog; the per-deck `--deadline`
   watchdog is what stops one such deck stalling a whole run. Check `audit` for
   outliers before a big export.
+- **Decks with restricted embedded fonts cost two failed attempts first.**
+  Fonts licensed for preview-and-print only make PowerPoint ask before opening
+  the deck, and that prompt cannot be answered by a script. The export detects
+  this after its normal retries, strips the embedded fonts and tries again — so
+  the deck comes out, but those faces substitute unless you have them installed.
+  Installing the fonts avoids both the delay and the substitution.
 - **Fonts that are neither installed nor embedded in the deck are substituted.**
   PowerPoint cannot conjure them and no pipeline change fixes it. Run `audit`
   first, install what it flags, then export.

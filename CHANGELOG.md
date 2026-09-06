@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Decks with restricted embedded fonts no longer hang the export.** A deck can
+  embed fonts licensed for preview-and-print only — most licensed families are,
+  Graphik among them — and PowerPoint refuses to open one for editing without a
+  modal prompt: *"This presentation cannot be edited because it contains one or
+  more read-only embedded (restricted) fonts."* Driven by AppleScript with
+  nobody at the keyboard, that dialog is never answered, so the export sat there
+  until the watchdog killed it and the deck was reported as a timeout. No
+  deadline is long enough, because nothing is happening. After the normal
+  attempts fail, the export now retries with the embedded fonts removed and says
+  so — those faces fall back to whatever is installed, which is worse than a
+  perfect export and much better than none. A 64-slide deck that had failed
+  twice completed in 10 seconds this way.
+
 - **Workspaces left by killed runs are swept up.** The EXIT trap covers a normal
   finish and a Ctrl-C, but not a `kill -9` or a crash, and the leftovers sit
   inside PowerPoint's container holding copies of decks. A run now removes any
@@ -36,6 +49,19 @@ real 156-deck library.
   PowerPoint, so anything you have open goes with it.
 
 ## Unreleased
+
+- **Decks with restricted embedded fonts no longer hang the export.** A deck can
+  embed fonts licensed for preview-and-print only — most licensed families are,
+  Graphik among them — and PowerPoint refuses to open one for editing without a
+  modal prompt: *"This presentation cannot be edited because it contains one or
+  more read-only embedded (restricted) fonts."* Driven by AppleScript with
+  nobody at the keyboard, that dialog is never answered, so the export sat there
+  until the watchdog killed it and the deck was reported as a timeout. No
+  deadline is long enough, because nothing is happening. After the normal
+  attempts fail, the export now retries with the embedded fonts removed and says
+  so — those faces fall back to whatever is installed, which is worse than a
+  perfect export and much better than none. A 64-slide deck that had failed
+  twice completed in 10 seconds this way.
 
 Fixes found by running the tool over a 384-deck library, plus the checks a
 public release needs.

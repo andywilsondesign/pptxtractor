@@ -19,6 +19,7 @@ import extract_notes                                 # noqa: E402
 import extract_media                                 # noqa: E402
 import add_notes                                     # noqa: E402
 import name_images                               # noqa: E402
+import strip_fonts                               # noqa: E402
 
 FAILURES = []
 
@@ -161,6 +162,44 @@ def main():
             subprocess.run([renderer, pdf, ldir, "400", "deck", "png", "", lpath],
                            check=True, capture_output=True)
             check("re-rendering is idempotent", len(os.listdir(ldir)), 4)
+
+        # A deck can embed fonts licensed for preview-and-print only. PowerPoint
+        # will not open one for editing without a modal prompt, which nobody is
+        # there to answer, so the export hangs until the watchdog kills it.
+        # Removing the embedded fonts removes the question.
+        print("embedded fonts")
+        fdeck = os.path.join(tmp, "fonts.pptx")
+        with zipfile.ZipFile(deck) as zin, \
+                zipfile.ZipFile(fdeck, "w", zipfile.ZIP_DEFLATED) as zout:
+            for it in zin.infolist():
+                data = zin.read(it.filename)
+                if it.filename == "ppt/presentation.xml":
+                    data = data.replace(b"</p:presentation>",
+                                        b'<p:embeddedFontLst><p:embeddedFont>'
+                                        b'<p:font typeface="Graphik"/>'
+                                        b'</p:embeddedFont></p:embeddedFontLst>'
+                                        b'</p:presentation>')
+                elif it.filename == "ppt/_rels/presentation.xml.rels":
+                    data = data.replace(b"</Relationships>",
+                                        b'<Relationship Id="rIdFont9" Target="fonts/font1.fntdata" '
+                                        b'Type="http://schemas.openxmlformats.org/officeDocument/'
+                                        b'2006/relationships/font"/></Relationships>')
+                zout.writestr(it, data)
+            zout.writestr("ppt/fonts/font1.fntdata", b"\x00" * 64)
+        truthy("detects embedded fonts", strip_fonts.has_embedded_fonts(fdeck))
+        truthy("plain deck has none", not strip_fonts.has_embedded_fonts(deck))
+        clean = os.path.join(tmp, "nofonts.pptx")
+        check("reports what it removed", strip_fonts.strip(fdeck, clean), 1)
+        with zipfile.ZipFile(clean) as z:
+            names = z.namelist()
+            pres = z.read("ppt/presentation.xml").decode()
+            rels = z.read("ppt/_rels/presentation.xml.rels").decode()
+            truthy("font part gone", not any(n.startswith("ppt/fonts/") for n in names))
+            truthy("embeddedFontLst gone", "<p:embeddedFontLst" not in pres)
+            truthy("no dangling font relationship", "fonts/font1.fntdata" not in rels)
+            check("slides untouched", len([n for n in names
+                  if n.startswith("ppt/slides/slide") and n.endswith(".xml")]), 2)
+        check("nothing to strip is reported", strip_fonts.strip(deck, os.path.join(tmp, "x.pptx")), 0)
 
         print("media extraction")
         mdir = os.path.join(tmp, "media")

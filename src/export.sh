@@ -674,7 +674,30 @@ except Exception:
   if ! to_pdf "$feed" "$pdf"; then
     echo "  export failed - resetting PowerPoint and retrying once"
     ppt_reset
+    # A deck can embed fonts licensed for preview and print only - most
+    # licensed families are - and PowerPoint refuses to open such a deck for
+    # editing without asking first, in a modal dialog. Driven by AppleScript
+    # with nobody at the keyboard that dialog is never answered, so the export
+    # hangs until the watchdog kills it and the deck looks like a timeout. No
+    # deadline is long enough, because nothing is happening.
+    #
+    # Removing the embedded fonts removes the question. Those faces then fall
+    # back to whatever is installed, so this is only ever a last resort - the
+    # faithful attempt has already failed twice by now, and the alternative is
+    # no export at all.
     if ! to_pdf "$feed" "$pdf"; then
+      if python3 "$HERE/strip_fonts.py" "$feed" "$WORK/nofonts.pptx" >/dev/null 2>>"$LOG"; then
+        echo "  this deck embeds restricted fonts, which stops PowerPoint opening it"
+        echo "       unattended. Retrying without them - faces that are not installed"
+        echo "       on this Mac will be substituted in the output."
+        ppt_reset
+        if to_pdf "$WORK/nofonts.pptx" "$pdf"; then
+          echo "  recovered (fonts stripped)"
+          feed="$WORK/nofonts.pptx"
+        fi
+      fi
+    fi
+    if [ ! -s "$pdf" ]; then
       echo "  PDF export failed (see $LOG)"
       echo "       PowerPoint could not produce a PDF for this one. Very large"
       echo "       decks are the usual cause - PowerPoint stops responding and"
