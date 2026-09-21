@@ -5,6 +5,39 @@
 Found by running a 156-deck library end to end. Every item below cost that run
 something real.
 
+- **New: `pptxtractor fonts`.** `audit` could say which faces were missing but
+  not what to do about them, and on that library it was the largest piece of
+  preparation by a distance — 30 faces across 45 decks, resolved by hand.
+
+  The command separates three problems that all look like "missing font".
+  Faces **already present under another name** are matched to what is here:
+  `Helvetica Neue LT Std 75` is Linotype's spelling of Helvetica Neue Bold,
+  `HelveticaNeueLTStd-Lt` is Light, and `Aptos Display` is a cut of the Aptos
+  that ships inside PowerPoint — five faces covering 23 of those 45 decks, none
+  of which needed substituting at all. Things that **are not fonts** are named
+  as such rather than counted: `ui-sans-serif` is a CSS keyword that came in
+  with a paste from a browser, and `Hel\` is a corrupted string.
+
+  What is left gets a stand-in chosen by **measured width**. Slides are fixed
+  geometry, so a substitute wider than the face it replaces pushes text out of
+  its box; candidates are measured against Helvetica Neue on real text from the
+  decks that want the missing face, and overshoot is disqualifying before genre
+  or looks are weighed. This matters more than it sounds: the obvious
+  aesthetic choice was wrong in three of four cases here — Montserrat measured
+  **+11.1%** against the Proxima Nova it was standing in for and Inter
+  **+5.5%** against Graphik, while Archivo, Figtree and Overpass all came in
+  just under the anchor.
+
+  `--install` builds each face at the weight the decks ask for and installs it
+  with the OFL licence of every family used and an `UNINSTALL.sh`. **No deck is
+  edited** — a substitute simply answers to the name the slides ask for. The
+  faces end up embedded in the exported PDFs, so output stays right after the
+  substitutes are removed.
+
+  Reporting and alias resolution run on system Python. `--install` needs
+  fontTools, and says so, because building a weight out of a variable font
+  means instancing it and nothing in the standard library does that.
+
 - **A truncated run no longer reports success.** A deck whose `media/` held
   only `media.json` — linked video, nothing extractable — made
   `grep -cv`'s own `0` collide with a `|| echo 0` fallback, so the arithmetic

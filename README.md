@@ -116,6 +116,45 @@ animation build counts, embedded media, speaker notes, and likely duplicates.
 It also names the two things worth dealing with before you start: decks big
 enough to hang PowerPoint, and files it could not read at all.
 
+**Deal with the fonts.** `audit` says which faces are missing; this says what
+to do about each one:
+
+```
+pptxtractor fonts ~/Decks
+pptxtractor fonts ~/Decks --install
+```
+
+Missing faces turn out to be three different problems, and separating them is
+most of the work. Some are **already here under another name** —
+`Helvetica Neue LT Std 75` is Linotype's name for Helvetica Neue Bold, which is
+on every Mac, and `Aptos Display` is a cut of Aptos, which ships inside
+PowerPoint. Some **are not fonts at all** — `ui-sans-serif` is a CSS keyword
+that arrived with a paste from a web page. Only the rest need a stand-in.
+
+For those, the substitute is chosen by **measured width**, not by eye, because
+slides are fixed geometry: a face wider than the one it replaces pushes text
+out of a box that was sized to fit. Candidates are measured against Helvetica
+Neue using real text from the decks that ask for the missing face, and anything
+wider than the anchor is disqualified before genre or appearance is considered.
+On one 156-deck library the obvious aesthetic picks were wrong three times out
+of four — Montserrat ran 11% wider than the Proxima Nova it was standing in
+for, Inter 5% wider than Graphik.
+
+`--install` builds each face at the weight the decks ask for and installs it to
+`~/Library/Fonts/pptxtractor-substitutes/`, with the OFL licence of every
+family it used and an `UNINSTALL.sh` that removes the lot. **No deck is edited**
+— the substitute simply answers to the name the slides ask for, so the export
+picks it up with no other change. The fonts end up embedded in the exported
+PDFs, so the output stays correct even after you uninstall them.
+
+Reporting needs nothing but system Python. `--install` needs
+[fontTools](https://pypi.org/project/fonttools/), because building a weight
+from a variable font means instancing it:
+
+```
+python3 -m pip install --user fonttools
+```
+
 **Export the archive.** A whole tree, or a single deck:
 
 ```

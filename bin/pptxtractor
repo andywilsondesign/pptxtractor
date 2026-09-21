@@ -14,6 +14,14 @@ pptxtractor - bulk-extract faithful representations from PowerPoint decks.
       counts, aspect ratios, fonts that will be substituted, animation builds,
       embedded media, speaker notes and duplicates. Emits JSON.
 
+  pptxtractor fonts <folder> [--install] [--json FILE]
+      Say what to do about the faces those decks want and this Mac does not
+      have. Sorts them into the ones already here under another name, the ones
+      that are not fonts at all, and the ones needing a free stand-in - chosen
+      by measured width, because a substitute wider than the face it replaces
+      overflows the text box. --install builds and installs them, reversibly.
+      Reporting needs nothing extra; --install needs fontTools.
+
   pptxtractor export <folder|deck.pptx> [--out <folder>] [options]
       Export each deck to a vector PDF via PowerPoint, with speaker notes
       attached and playable media extracted alongside. Give it a whole tree or
@@ -61,6 +69,7 @@ USAGE
 cmd="${1:-help}"; shift || true
 case "$cmd" in
   audit)   exec python3 "$SRC/audit.py" "$@" ;;
+  fonts)   exec python3 "$SRC/fonts.py" "$@" ;;
   export)  exec bash "$SRC/export.sh" "$@" ;;
   render)  exec bash "$SRC/render.sh" "$@" ;;
   version) echo "pptxtractor 1.0.1" ;;

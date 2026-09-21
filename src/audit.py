@@ -41,7 +41,15 @@ def _norm(s):
     return re.sub(r'[^a-z0-9]', '', s.lower())
 
 
-def available_fonts():
+def available_fonts(exclude_dirs=()):
+    """Every face this Mac can supply, matched on filename.
+
+    `exclude_dirs` lets a caller ask what would be available *without* some
+    directory - `fonts` uses it to ignore the substitutes it installed itself,
+    so it can still see that the real face is absent rather than reading its
+    own work as the problem being solved.
+    """
+    exclude = tuple(os.path.abspath(d) for d in exclude_dirs)
     names = set()
     dirs = ['/System/Library/Fonts', '/Library/Fonts', os.path.expanduser('~/Library/Fonts')]
     for app in ('PowerPoint', 'Word', 'Excel'):
@@ -52,6 +60,8 @@ def available_fonts():
     # about to be substituted - the opposite of what this command is for.
     for d in dirs:
         for _root, _subdirs, files in os.walk(d):
+            if any(os.path.abspath(_root).startswith(x) for x in exclude):
+                continue
             for f in files:
                 if not f.lower().endswith(('.ttf', '.otf', '.ttc', '.dfont')):
                     continue
@@ -263,8 +273,8 @@ def find_decks(root):
     return sorted(out)
 
 
-def audit(root):
-    avail = available_fonts()
+def audit(root, exclude_font_dirs=()):
+    avail = available_fonts(exclude_font_dirs)
     decks = [inspect(p, avail) for p in find_decks(root)]
 
     # duplicate detection: same byte size and slide count

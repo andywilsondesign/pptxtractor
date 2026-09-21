@@ -20,6 +20,7 @@ import extract_media                                 # noqa: E402
 import add_notes                                     # noqa: E402
 import name_images                               # noqa: E402
 import strip_fonts                               # noqa: E402
+import fonts                                      # noqa: E402
 
 FAILURES = []
 
@@ -243,6 +244,48 @@ def main():
         truthy("growth is small", len(after) - len(before) < 4096)
         truthy("trailer chains to the old xref", b"/Prev" in after[len(before):])
         truthy("annotation objects written", after.count(b"/Subtype /Text") == 2)
+
+        # Everything here runs on system Python. Choosing and building the
+        # substitutes needs fontTools, but naming - which is where the subtle
+        # mistakes live - does not, so it is covered on any machine.
+        print("font names")
+        for spelling, want in [
+                # Linotype's numeric weights, and LT meaning two different
+                # things in one name: the foundry, then Light.
+                ("Helvetica Neue LT Std 75", ("Helvetica Neue", "Bold")),
+                ("HelveticaNeueLTStd-Lt", ("Helvetica Neue", "Light")),
+                ("HelveticaNeueLT Std Bold Cn", ("Helvetica Neue", "Bold")),
+                # camelCase must not strand "Semi" in the family name
+                ("Source Sans Pro SemiBold", ("Source Sans Pro", "SemiBold")),
+                # a Monotype web cut, wedged between digits
+                ("ObjektivMk3W03-Bold", ("Objektiv Mk3", "Bold")),
+                # "Pro" is part of the name, not foundry noise
+                ("Source Code Pro", ("Source Code Pro", None))]:
+            fam, style, _w, _o = fonts.parse_face(spelling)
+            check("reads %s" % spelling, (fam, style), want)
+
+        check("keeps a width apart from the family",
+              fonts.parse_face("Aptos Narrow (Body)")[:1], ("Aptos",))
+        truthy("spots a CSS keyword", fonts.is_noise("ui-sans-serif"))
+        truthy("spots a corrupted name", fonts.is_noise("Hel\\"))
+        check("passes a real face", fonts.is_noise("Graphik Semibold"), None)
+
+        print("grouping")
+        subst = [{"face": "Graphik", "family": "Graphik", "style": "Regular",
+                  "weight": 400, "decks": 1, "paths": ["a.pptx"]},
+                 {"face": "Graphik Thin", "family": "Graphik", "style": "Thin",
+                  "weight": 100, "decks": 1, "paths": ["a.pptx"]},
+                 # a named cut belongs with its family, not beside it
+                 {"face": "Graphik Courant", "family": "Graphik Courant",
+                  "style": "Regular", "weight": 400, "decks": 1, "paths": ["b.pptx"]},
+                 {"face": "Proxima Nova", "family": "Proxima Nova",
+                  "style": "Regular", "weight": 400, "decks": 1, "paths": ["c.pptx"]}]
+        groups = fonts.group_substitutes(subst)
+        check("one group per typeface", len(groups), 2)
+        biggest = groups[0]
+        check("the family absorbs its cuts", biggest["family"], "Graphik")
+        check("all three faces land in it", len(biggest["faces"]), 3)
+        check("and both decks", len(biggest["decks"]), 2)
 
         print()
         if FAILURES:
