@@ -126,7 +126,7 @@ def inspect(path, avail):
            "bytes": os.path.getsize(path), "slides": 0,
            "width_px": None, "height_px": None, "aspect": None,
            "fonts": [], "fonts_embedded": [], "fonts_missing": [],
-           "animated_slides": 0, "build_states": 0,
+           "animated_slides": 0, "build_states": 0, "hidden_slides": 0,
            "gifs": 0, "videos": 0, "audio": 0, "external_media": [],
            "media_bytes": 0, "noted_slides": 0, "notes_chars": 0,
            "error": None}
@@ -188,6 +188,14 @@ def inspect(path, avail):
             # (one deck here forecast 42 and produced none).
             for n in slides:
                 xml = z.read(n)
+                # PowerPoint never exports a hidden slide to PDF, so the page
+                # count will not match the slide count and the difference is
+                # invisible unless we say so. On a 156-deck library 30 decks
+                # held 186 hidden slides between them - every page shortfall in
+                # the archive turned out to be exactly this, but only after
+                # counting them by hand to prove nothing had been dropped.
+                if re.search(br'<p:sld\b[^>]*\sshow="0"', xml):
+                    rec["hidden_slides"] += 1
                 if b'<p:timing' not in xml:
                     continue
                 clicks = len(buildstates.click_steps(xml))
@@ -287,6 +295,8 @@ def audit(root):
             "decks_embedding_fonts": sum(1 for d in decks if d["fonts_embedded"]),
             "animated_decks": sum(1 for d in decks if d["animated_slides"]),
             "animated_slides": sum(d["animated_slides"] for d in decks),
+            "hidden_slides": sum(d["hidden_slides"] for d in decks),
+            "decks_with_hidden": sum(1 for d in decks if d["hidden_slides"]),
             "build_states": sum(d["build_states"] for d in decks),
             "decks_with_media": sum(1 for d in decks
                                     if d["gifs"] or d["videos"] or d["audio"] or d["external_media"]),
@@ -328,11 +338,13 @@ def main(argv):
         "%d decks, %d slides, %.2f GB\n"
         "  %d decks will substitute fonts | %d embed theirs\n"
         "  %d animated slides -> %d extra build pages\n"
+        "  %d hidden slides in %d decks - these never reach the PDF\n"
         "  %d animated GIFs, %d videos, %d linked | %d slides have notes\n"
         "  %d redundant duplicate copies\n"
         % (s["decks"], s["slides"], s["bytes"] / 1e9,
            s["font_risk_decks"], s["decks_embedding_fonts"],
            s["animated_slides"], s["build_states"],
+           s["hidden_slides"], s["decks_with_hidden"],
            s["animated_gifs"], s["videos"], s["external_media"], s["noted_slides"],
            s["redundant_copies"]))
 

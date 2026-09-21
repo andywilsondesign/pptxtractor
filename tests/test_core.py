@@ -59,6 +59,29 @@ def main():
         truthy("flags the missing font", "NotARealFontFace" in d["fonts_missing"])
         truthy("does not flag a real font", "Helvetica" not in d["fonts_missing"])
         check("no read errors", d["error"], None)
+        check("no hidden slides in the plain fixture", d["hidden_slides"], 0)
+
+        # PowerPoint never exports a hidden slide, so the PDF comes out shorter
+        # than the slide count. Unreported, that gap looks like dropped work.
+        print("hidden slides")
+        hid_dir = os.path.join(tmp, "hidden")
+        os.makedirs(hid_dir)
+        make_fixture.build_hidden_pptx(os.path.join(hid_dir, "hidden.pptx"))
+        hres = audit_mod.audit(hid_dir)
+        hd = hres["decks"][0]
+        check("counts every slide", hd["slides"], 3)
+        check("counts the hidden one", hd["hidden_slides"], 1)
+        check("totals hidden slides", hres["summary"]["hidden_slides"], 1)
+        check("counts decks holding them", hres["summary"]["decks_with_hidden"], 1)
+
+        print("a deck with no slides")
+        ns_dir = os.path.join(tmp, "noslides")
+        os.makedirs(ns_dir)
+        make_fixture.build_noslides_pptx(os.path.join(ns_dir, "Template.pptx"))
+        nres = audit_mod.audit(ns_dir)
+        nd = nres["decks"][0]
+        check("reads it without error", nd["error"], None)
+        check("reports zero slides", nd["slides"], 0)
 
         print("animation expansion")
         steps = buildstates.click_steps(zipfile.ZipFile(deck).read("ppt/slides/slide1.xml"))

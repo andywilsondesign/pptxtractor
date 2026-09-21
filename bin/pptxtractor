@@ -36,6 +36,7 @@ pptxtractor - bulk-extract faithful representations from PowerPoint decks.
       --no-media        do not extract media
       --svg             also extract embedded SVGs
       --deadline N      seconds per deck before giving up (default 240)
+      --no-caffeinate   do not hold the Mac awake for the run
       --dry-run         list what would be exported and stop
 
   pptxtractor render <archive> [--format FMT] [--edge N] [--only TEXT]

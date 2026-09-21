@@ -20,6 +20,22 @@
 
 set -uo pipefail
 
+# Keep the Mac awake for the whole run. Telling the user to remember
+# `caffeinate -i` in the banner puts the burden in the wrong place: a run long
+# enough to need the advice is long enough that forgetting it loses the run.
+# Re-exec once under caffeinate instead. --no-caffeinate opts out; a dry run
+# writes nothing and does not need it.
+if [ -z "${PPTXTRACTOR_CAFFEINATED:-}" ] && command -v caffeinate >/dev/null 2>&1; then
+  _caffeine=1
+  for _arg in "$@"; do
+    case "$_arg" in --dry-run|--no-caffeinate) _caffeine=0 ;; esac
+  done
+  if [ "$_caffeine" = "1" ]; then
+    export PPTXTRACTOR_CAFFEINATED=1
+    exec caffeinate -i "$0" "$@"
+  fi
+fi
+
 ROOT=""
 LAYOUT="mirror"        # mirror | beside | flat  - see resolve_dest()
 ON_CONFLICT=""         # ask | skip | overwrite | new; resolved from the tty
@@ -272,6 +288,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --run) MODE="run"; shift ;;          # accepted, and the default
     --dry-run) MODE="dry"; shift ;;
+    # Handled by the re-exec at the top; accepted here so it is not an error.
+    --no-caffeinate) shift ;;
     --edge) EDGE="$2"; shift 2 ;;
     --out) OUTROOT="$2"; shift 2 ;;
     --layout) LAYOUT="$2"; shift 2 ;;
@@ -349,8 +367,14 @@ setup_workspace
 
 # The log records deck paths and file names, so it must not land in the source
 # tree - this repo is public and the decks are not. Keep it beside the archive
-# being built; fall back to the (auto-deleted) workspace when there is no --out.
+# being built when there is an --out to keep it beside.
 LOG="${PPTXTRACTOR_LOG:-${OUTROOT:+$OUTROOT/pptxtractor.log}}"
+# --layout beside has no --out, and the old fallback was the workspace - which
+# is deleted on exit, taking the record of a multi-hour run with it. The macOS
+# log directory is durable and still outside the source tree.
+if [ -z "$LOG" ]; then
+  LOG="$HOME/Library/Logs/pptxtractor/$(date +%Y-%m-%d-%H%M%S).log"
+fi
 LOG="${LOG:-$WORK/pptxtractor.log}"
 # A dry run must not create anything, including the folder it would log into.
 if [ "$MODE" = "dry" ]; then
@@ -467,7 +491,7 @@ This drives PowerPoint itself. While it runs:
     into it, opening your own file or quitting it will break the export
   * do not open your own presentations while this runs. Recovering from a stuck
     deck force-quits PowerPoint, and anything you had open goes with it
-  * do not let the machine sleep (prefix the command with `caffeinate -i`)
+  * the Mac is held awake for you until this finishes (--no-caffeinate opts out)
 
 You can keep using the rest of the Mac. Stopping the run is safe - press Ctrl-C
 between decks and re-run later; finished decks are skipped.
@@ -496,6 +520,7 @@ if [ "$SINGLE_FILE" = "1" ]; then
 else
   total_decks=$(find "$ROOT" -type f -iname "*.pptx" 2>/dev/null \
     | grep -v '/~\$' \
+    | grep -v '/\._' \
     | { if [ -n "$ONLY" ]; then grep -F -- "$ONLY"; else cat; fi; } \
     | wc -l | tr -d ' ')
 fi
@@ -515,14 +540,22 @@ fi
 name_repeats() { [ -s "$DUPNAMES" ] && grep -Fxq -- "$1" "$DUPNAMES"; }
 
 ok=0; skip=0; fail=0; consecutive=0; CONFLICT_ALL=""; explained_unreadable=0
+explained_noslides=0
 # Decks whose embedded fonts had to be removed to get them open at all. Their
 # output uses whatever is installed instead, so it is worth saying which.
 STRIPPED="$WORK/stripped.txt"; : > "$STRIPPED"
+# Decks whose animation builds had to be flattened to get a PDF at all.
+FLATTENED="$WORK/flattened.txt"; : > "$FLATTENED"
 seen=0; yield_pages=0; yield_images=0; yield_media=0
+# Counted once per deck the loop reaches, whatever the outcome. `seen` drives
+# the progress display and is not incremented on every path; this is the one
+# that can be trusted against total_decks at the end.
+processed=0
 while IFS= read -r -d '' src; do
   base="$(basename "$src")"
   case "$base" in ~\$*|._*) continue ;; esac
   [ -n "$ONLY" ] && case "$src" in *"$ONLY"*) ;; *) continue ;; esac
+  processed=$((processed+1))
 
   farm_field_end
   stem="${base%.*}"
@@ -628,21 +661,43 @@ while IFS= read -r -d '' src; do
   # truncated .pptx - a zip whose central directory never arrived - looks fine
   # to `file` and opens as nothing. Handed to PowerPoint it hangs, costing two
   # full deadlines before the run moves on. Reading the directory is instant.
-  if ! python3 -c 'import sys,zipfile
+  # Exit 3 = not a readable package, 4 = readable but holds no slides.
+  python3 -c 'import sys,zipfile,re
 try:
     z = zipfile.ZipFile(sys.argv[1])
-    sys.exit(0 if "ppt/presentation.xml" in z.namelist() else 3)
+    names = z.namelist()
+    if "ppt/presentation.xml" not in names:
+        sys.exit(3)
+    if not [n for n in names if re.match(r"ppt/slides/slide\d+\.xml$", n)]:
+        sys.exit(4)
 except Exception:
-    sys.exit(3)' "$src" 2>/dev/null; then
-    echo "SKIP (not a readable .pptx)  $src"
-    if [ "$explained_unreadable" = "0" ]; then
-      echo "       The file itself is damaged - usually a download or sync that"
-      echo "       stopped early, leaving a .pptx with no index. PowerPoint cannot"
-      echo "       open it either, so there is nothing this tool can do with it."
-      echo "       Check for another copy, or your backups."
-      explained_unreadable=1
+    sys.exit(3)' "$src" 2>/dev/null
+  readable=$?
+  if [ "$readable" != "0" ]; then
+    if [ "$readable" = "4" ]; then
+      # A valid package with layouts, masters and themes but no slides: a
+      # template saved with the wrong extension. PowerPoint cannot export what
+      # is not there, and that is not a failure of the deck or of this tool -
+      # so it is skipped, not failed, and does not count against the run.
+      echo "SKIP (no slides)  $src"
+      if [ "$explained_noslides" = "0" ]; then
+        echo "       A valid .pptx that contains no slides at all - only layouts,"
+        echo "       masters and themes. That is a template saved with the wrong"
+        echo "       extension. There is nothing to export."
+        explained_noslides=1
+      fi
+      skip=$((skip+1))
+    else
+      echo "SKIP (not a readable .pptx)  $src"
+      if [ "$explained_unreadable" = "0" ]; then
+        echo "       The file itself is damaged - usually a download or sync that"
+        echo "       stopped early, leaving a .pptx with no index. PowerPoint cannot"
+        echo "       open it either, so there is nothing this tool can do with it."
+        echo "       Check for another copy, or your backups."
+        explained_unreadable=1
+      fi
+      fail=$((fail+1))
     fi
-    fail=$((fail+1))
     seen=$((seen+1)); farm_field "$seen" "$total_decks" "$stem"
     continue
   fi
@@ -701,12 +756,40 @@ except Exception:
         fi
       fi
     fi
+    # The build-state expansion rewrites the deck, and the rewrite is itself
+    # something PowerPoint can refuse to open. A 349 MB, 125-slide deck failed
+    # four times as expanded.pptx - twice at 240s, twice at 2400s - then
+    # exported from the untouched original in under a minute. More time never
+    # helps, because nothing is happening; dropping the expansion does. The
+    # cost is the build pages, and the alternative is no PDF at all.
+    if [ ! -s "$pdf" ] && [ "$STATES" = "1" ] && [ "$feed" != "$tmp" ]; then
+      echo "  retrying without --states - the expanded copy is what PowerPoint"
+      echo "       could not open. Animation builds will be flattened to their"
+      echo "       final frame; everything else is unaffected."
+      ppt_reset
+      if to_pdf "$tmp" "$pdf"; then
+        echo "  recovered (build states flattened)"
+        feed="$tmp"
+        # slides.json was written for the expanded page count; rewrite it as a
+        # plain slide map or every page number after a build would be wrong.
+        python3 "$HERE/buildstates.py" map "$src" "$dest/slides.json" 2>>"$LOG" || true
+        printf '%s\n' "$src" >> "$FLATTENED"
+      fi
+    fi
     if [ ! -s "$pdf" ]; then
       echo "  PDF export failed (see $LOG)"
-      echo "       PowerPoint could not produce a PDF for this one. Very large"
-      echo "       decks are the usual cause - PowerPoint stops responding and"
-      echo "       there is no way to make it finish. The deck is fine; try it"
-      echo "       on its own, or open it and save a lighter copy."
+      # Say what was actually tried. Guessing "very large deck" sent a reader
+      # after file size on a 239 KB file once; size is a poor predictor here.
+      if [ "$STATES" = "1" ]; then
+        echo "       Tried: a reset and retry, removing embedded fonts, and"
+        echo "       exporting without --states. None of them worked."
+      else
+        echo "       Tried: a reset and retry, and removing embedded fonts."
+        echo "       Neither worked."
+      fi
+      echo "       A deck that fails this way sits at 0% CPU rather than working"
+      echo "       slowly, so a longer --deadline will not help. Open it in"
+      echo "       PowerPoint yourself to see what it asks for."
       # Clear everything written before the failure, or the provenance record
       # keeps the folder alive and a later run reads it as a finished export.
       rm -f "$dest/slides.json" "$dest/source.json"; rmdir "$dest" 2>/dev/null
@@ -757,7 +840,10 @@ except Exception:
     'import json,sys;print(len(json.load(open(sys.argv[1]))["pages"]))' \
     "$dest/slides.json" 2>/dev/null || echo 0)))
   [ -d "$dest/images" ] && yield_images=$((yield_images + $(ls -1 "$dest/images" 2>/dev/null | wc -l | tr -d ' ')))
-  [ -d "$dest/media" ] && yield_media=$((yield_media + $(ls -1 "$dest/media" 2>/dev/null | grep -cv '^media.json$' || echo 0)))
+  # grep -c prints 0 AND exits 1 when nothing matches, so `|| echo 0` used to
+  # append a second 0 and the arithmetic saw "0\n0". A deck whose media/ holds
+  # only media.json (external links, nothing extractable) killed the whole run.
+  [ -d "$dest/media" ] && yield_media=$((yield_media + $(ls -1 "$dest/media" 2>/dev/null | grep -cv '^media.json$' || true)))
   seen=$((seen+1)); farm_field "$seen" "$total_decks" "$stem"
 done < <(if [ "$SINGLE_FILE" = "1" ]; then printf '%s\0' "$ROOT"
          else find "$ROOT" -type f -iname "*.pptx" -print0 | sort -z; fi)
@@ -767,8 +853,20 @@ farm_field_end
 # A run where some decks lost their embedded fonts should say so somewhere more
 # durable than the scrollback - by the time a long run finishes, the lines that
 # explained it are thousands of lines back.
-if [ -s "$STRIPPED" ] && [ "$LAYOUT" != "beside" ] && [ -n "$OUTROOT" ]; then
-  report="$OUTROOT/FONT-SUBSTITUTIONS.txt"
+report=""
+if [ -s "$STRIPPED" ]; then
+  if [ "$LAYOUT" = "beside" ]; then
+    # beside puts the exports in the source tree by the user's own choice, so
+    # the report belongs with them - it is the only durable place such a run
+    # has. Previously this branch wrote nothing, which meant the one layout
+    # with no central folder was also the one with no record.
+    if [ "$SINGLE_FILE" = "1" ]; then report="$(dirname "$ROOT")/FONT-SUBSTITUTIONS.txt"
+    else report="$ROOT/FONT-SUBSTITUTIONS.txt"; fi
+  elif [ -n "$OUTROOT" ]; then
+    report="$OUTROOT/FONT-SUBSTITUTIONS.txt"
+  fi
+fi
+if [ -n "$report" ]; then
   {
     echo "Decks exported without their embedded fonts"
     echo "==========================================="
@@ -793,10 +891,31 @@ if [ -s "$STRIPPED" ] && [ "$LAYOUT" != "beside" ] && [ -n "$OUTROOT" ]; then
   } > "$report" 2>/dev/null
 fi
 
+# The loop can stop before the tree is walked - three consecutive failures
+# break out by design, and a fault in the body can end the read. Printing
+# "0 failed" then is worse than the truncation itself, because a script or an
+# agent driving this believes it. Compare what was reached against what was
+# counted and say so plainly.
+shortfall=0
+if [ "$MODE" != "dry" ] && [ "$processed" -lt "$total_decks" ]; then
+  shortfall=$((total_decks - processed))
+fi
+
 echo
 echo "done: $ok exported, $skip skipped, $fail failed   (mode=$MODE)"
+if [ "$shortfall" -gt 0 ]; then
+  echo
+  echo "INCOMPLETE: $shortfall of $total_decks deck(s) were never reached."
+  echo "  This run stopped before walking the whole tree, so it is not a"
+  echo "  complete archive. Nothing already written is wrong - finished decks"
+  echo "  are on disk and are skipped - so re-running the same command"
+  echo "  continues from here."
+fi
+if [ -s "$FLATTENED" ]; then
+  echo "note: $(sort -u "$FLATTENED" | wc -l | tr -d ' ') deck(s) exported with animation builds flattened - PowerPoint could not open the expanded copy"
+fi
 if [ -s "$STRIPPED" ]; then
-  echo "note: $(sort -u "$STRIPPED" | wc -l | tr -d ' ') deck(s) exported without their embedded fonts - see FONT-SUBSTITUTIONS.txt"
+  echo "note: $(sort -u "$STRIPPED" | wc -l | tr -d ' ') deck(s) exported without their embedded fonts${report:+ - see $report}"
 fi
 farm_yield "$ok" "$yield_pages" "$yield_images" "$yield_media"
 # Say where it went once more. Someone who scrolled past the banner, or walked
@@ -817,4 +936,5 @@ fi
 # 0 = everything asked for was produced, 1 = some deck failed,
 # 2 = bad arguments, 3 = PowerPoint missing or too old, 4 = automation denied.
 [ "$fail" -gt 0 ] && exit 1
+[ "$shortfall" -gt 0 ] && exit 1
 exit 0

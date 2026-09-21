@@ -2,6 +2,68 @@
 
 ## Unreleased
 
+Found by running a 156-deck library end to end. Every item below cost that run
+something real.
+
+- **A truncated run no longer reports success.** A deck whose `media/` held
+  only `media.json` — linked video, nothing extractable — made
+  `grep -cv`'s own `0` collide with a `|| echo 0` fallback, so the arithmetic
+  received `0\n0` and failed. That ended the loop at deck 21 of 156, and the
+  run then printed `done: 21 exported, 0 skipped, 0 failed` and exited 0. The
+  arithmetic is fixed, and separately the run now counts the decks it actually
+  reached against the total, says `INCOMPLETE: n of m deck(s) were never
+  reached`, and exits non-zero. The false success was the dangerous half: a
+  script or an agent believes an exit code.
+
+- **A deck that will not export with `--states` is retried without it.** The
+  build-state expansion rewrites the deck, and that rewrite is itself something
+  PowerPoint can refuse to open. A 349 MB, 125-slide deck failed four times as
+  the expanded copy — twice at 240s, twice at 2400s — then exported from the
+  untouched original in under a minute. More time never helped because nothing
+  was happening. The cost of the fallback is the build pages; the alternative
+  was no PDF at all. `slides.json` is rewritten as a plain slide map when this
+  happens, so page numbers stay right.
+
+- **A .pptx with no slides is skipped, not failed.** A template saved with the
+  wrong extension is a valid package holding layouts, masters and themes and
+  nothing else. It used to be attempted, fail, and be blamed on deck size — the
+  file in question was 239 KB. It is now recognised up front and reported as a
+  skip, so a library containing one can still report a clean run.
+
+- **Failure messages say what was tried instead of guessing why.** The old text
+  named very large decks as "the usual cause" unconditionally. In this library
+  the 753 MB and 299 MB decks both exported fine and the 349 MB one did not, so
+  size was actively misleading. The message now lists the recovery steps that
+  ran — reset and retry, embedded fonts removed, `--states` dropped — and says
+  that a deck failing this way sits at 0% CPU, so a longer `--deadline` will
+  not help.
+
+- **`audit` reports hidden slides.** PowerPoint never exports them, so the PDF
+  comes out shorter than the slide count and the gap looks like dropped work.
+  Thirty decks in this library held 186 hidden slides between them, and every
+  page shortfall in the finished archive turned out to be exactly that — but
+  only after counting them by hand to prove nothing had been lost.
+
+- **`FONT-SUBSTITUTIONS.txt` is written in `beside` layout too.** It was gated
+  on there being an `--out`, so the one layout with no central output folder
+  was also the one with no durable record — precisely the run that needs it.
+  It now lands at the source root.
+
+- **The run log survives `--layout beside`.** With no `--out` the log fell back
+  to the workspace, which is deleted on exit, taking the record of a multi-hour
+  run with it. It now defaults to `~/Library/Logs/pptxtractor/<date>.log` —
+  durable, and still outside the source tree, which the log must stay out of
+  because it records deck paths.
+
+- **`caffeinate` is applied, not advised.** The banner told the user to prefix
+  the command with `caffeinate -i` and then did not do it; a run long enough to
+  need that advice is long enough that forgetting it loses the run. It now
+  re-execs itself under `caffeinate` once. `--no-caffeinate` opts out, and a
+  dry run does not bother.
+
+- **`total_decks` no longer counts `._` resource forks**, which the loop skips.
+  On a synced volume that made the denominator one too high.
+
 - **A run that had to strip fonts now says so in the archive, not just in the
   scrollback.** `FONT-SUBSTITUTIONS.txt` lands next to the exports, naming the
   decks affected and both ways to get them at full fidelity. By the time a long

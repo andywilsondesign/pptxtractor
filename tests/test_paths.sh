@@ -77,6 +77,26 @@ dests "$TMP/src" --out "$TMP/never-created" >/dev/null
 after="$(find "$TMP" | wc -l | tr -d ' ')"
 check "no directories created" "$before" "$after"
 
+# A .pptx holding only layouts and a theme is a template saved with the wrong
+# extension. It is readable, so it is not a damaged file, and there is nothing
+# to export from it - so it must be skipped rather than failed, or a library
+# with one template in it can never report a clean run.
+echo "a deck with no slides"
+mkdir -p "$TMP/noslides"
+python3 -c "
+import sys; sys.path.insert(0, '$HERE'); sys.path.insert(0, '$ROOT/src')
+import make_fixture; make_fixture.build_noslides_pptx('$TMP/noslides/Template.pptx')" \
+  || { echo 'could not build the no-slides fixture'; exit 1; }
+out="$("$CLI" export "$TMP/noslides" --out "$TMP/noslides-out" --dry-run 2>&1)"
+rc=$?
+check "reported as skipped, not failed" \
+  "$(printf '%s' "$out" | grep -c 'SKIP (no slides)')" "1"
+check "explained once, in plain words" \
+  "$(printf '%s' "$out" | grep -c 'contains no slides at all')" "1"
+check "not counted as a failure" \
+  "$(printf '%s' "$out" | grep -cE '^done: .* 0 failed')" "1"
+check "exit code stays clean" "$rc" "0"
+
 echo
 if [ "$fails" -eq 0 ]; then echo "all path checks passed"; else echo "$fails FAILED"; fi
 exit $([ "$fails" -eq 0 ] && echo 0 || echo 1)

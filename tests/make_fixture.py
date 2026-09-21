@@ -35,8 +35,11 @@ def timing(spids):
             '</p:tnLst></p:timing>')
 
 
-def slide(shapes, tim=""):
-    return (XD + f'<p:sld {NS_P} {NS_A} {NS_R} {NS_MC}><p:cSld><p:spTree>'
+def slide(shapes, tim="", hidden=False):
+    # show="0" is how PowerPoint marks a slide hidden. It still exports
+    # to nothing: hidden slides never reach the PDF.
+    hide = ' show="0"' if hidden else ''
+    return (XD + f'<p:sld {NS_P} {NS_A} {NS_R} {NS_MC}{hide}><p:cSld><p:spTree>'
             '<p:nvGrpSpPr><p:cNvPr id="1" name="Shape 1"/><p:cNvGrpSpPr/><p:nvPr/>'
             '</p:nvGrpSpPr><p:grpSpPr/>' + "".join(shapes) +
             '</p:spTree></p:cSld><p:clrMapOvr><a:overrideClrMapping/></p:clrMapOvr>'
@@ -161,3 +164,93 @@ if __name__ == "__main__":
     os.makedirs(here, exist_ok=True)
     print(build_pptx(os.path.join(here, "fixture.pptx")))
     print(build_pdf(os.path.join(here, "fixture.pdf")))
+
+
+def build_noslides_pptx(path):
+    """A valid package with a presentation part and a theme but no slides.
+
+    A template saved with the wrong extension looks exactly like this. It opens
+    fine, so it is not damaged, but PowerPoint has nothing to export from it -
+    a distinction the exporter has to make, or it reports the file as a failure
+    and blames its size.
+    """
+    p = {}
+    p['[Content_Types].xml'] = XD + (
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>'
+        '<Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>'
+        '</Types>')
+    p['_rels/.rels'] = XD + (
+        f'<Relationships xmlns="{REL}"><Relationship Id="rId1" '
+        f'Type="{REL}/officeDocument" Target="ppt/presentation.xml"/></Relationships>')
+    p['ppt/presentation.xml'] = XD + (
+        f'<p:presentation {NS_P} {NS_A} {NS_R}><p:sldIdLst/>'
+        '<p:sldSz cx="12192000" cy="6858000"/>'
+        '<p:notesSz cx="6858000" cy="9144000"/></p:presentation>')
+    p['ppt/_rels/presentation.xml.rels'] = XD + (
+        f'<Relationships xmlns="{REL}">'
+        f'<Relationship Id="rId3" Type="{REL}/theme" Target="theme/theme1.xml"/>'
+        '</Relationships>')
+    p['ppt/theme/theme1.xml'] = XD + (
+        f'<a:theme {NS_A} name="Fixture"><a:themeElements><a:fontScheme name="F">'
+        '<a:majorFont><a:latin typeface="Helvetica"/></a:majorFont>'
+        '<a:minorFont><a:latin typeface="Helvetica"/></a:minorFont>'
+        '</a:fontScheme></a:themeElements></a:theme>')
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
+        for name, body in p.items():
+            z.writestr(name, body)
+    return path
+
+
+def build_hidden_pptx(path):
+    """Three slides, the middle one hidden.
+
+    PowerPoint does not export hidden slides to PDF, so the page count comes
+    out lower than the slide count. `audit` reports the difference so nobody
+    has to count them by hand to prove nothing was dropped.
+    """
+    p = {}
+    overrides = "".join(
+        f'<Override PartName="/ppt/slides/slide{i}.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>'
+        for i in (1, 2, 3))
+    p['[Content_Types].xml'] = XD + (
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>'
+        + overrides +
+        '<Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>'
+        '</Types>')
+    p['_rels/.rels'] = XD + (
+        f'<Relationships xmlns="{REL}"><Relationship Id="rId1" '
+        f'Type="{REL}/officeDocument" Target="ppt/presentation.xml"/></Relationships>')
+    p['ppt/presentation.xml'] = XD + (
+        f'<p:presentation {NS_P} {NS_A} {NS_R}><p:sldIdLst>'
+        '<p:sldId id="256" r:id="rId1"/><p:sldId id="257" r:id="rId2"/>'
+        '<p:sldId id="258" r:id="rId3"/>'
+        '</p:sldIdLst><p:sldSz cx="12192000" cy="6858000"/>'
+        '<p:notesSz cx="6858000" cy="9144000"/></p:presentation>')
+    p['ppt/_rels/presentation.xml.rels'] = XD + (
+        f'<Relationships xmlns="{REL}">'
+        f'<Relationship Id="rId1" Type="{REL}/slide" Target="slides/slide1.xml"/>'
+        f'<Relationship Id="rId2" Type="{REL}/slide" Target="slides/slide2.xml"/>'
+        f'<Relationship Id="rId3" Type="{REL}/slide" Target="slides/slide3.xml"/>'
+        f'<Relationship Id="rId4" Type="{REL}/theme" Target="theme/theme1.xml"/>'
+        '</Relationships>')
+    p['ppt/slides/slide1.xml'] = slide([shape(2, 'A', 'Visible one')])
+    p['ppt/slides/slide2.xml'] = slide([shape(2, 'B', 'Hidden')], hidden=True)
+    p['ppt/slides/slide3.xml'] = slide([shape(2, 'C', 'Visible two')])
+    for i in (1, 2, 3):
+        p[f'ppt/slides/_rels/slide{i}.xml.rels'] = XD + f'<Relationships xmlns="{REL}"/>'
+    p['ppt/theme/theme1.xml'] = XD + (
+        f'<a:theme {NS_A} name="Fixture"><a:themeElements><a:fontScheme name="F">'
+        '<a:majorFont><a:latin typeface="Helvetica"/></a:majorFont>'
+        '<a:minorFont><a:latin typeface="Helvetica"/></a:minorFont>'
+        '</a:fontScheme></a:themeElements></a:theme>')
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as z:
+        for name, body in p.items():
+            z.writestr(name, body)
+    return path
