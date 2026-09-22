@@ -14,7 +14,18 @@ SHAPE_TAGS = ('p:sp', 'p:grpSp', 'p:pic', 'p:graphicFrame', 'p:cxnSp')
 
 
 def click_steps(xml_bytes):
-    """Ordered click steps as (entering spids, exiting spids)."""
+    """Ordered click steps.
+
+    Each step is (entering spids, exiting spids, entering paragraphs,
+    exiting paragraphs), where a paragraph is (spid, paragraph index).
+
+    The distinction matters. PowerPoint's default way to build a bulleted
+    list is to animate one text box paragraph by paragraph, which reaches the
+    XML as several steps that all name the same shape and differ only in a
+    <p:txEl><p:pRg>. Reading the spid alone makes those steps look identical,
+    and hiding the whole shape for each of them produces a run of identical
+    frames followed by one where everything appears at once.
+    """
     try:
         root = ET.fromstring(xml_bytes)
     except ET.ParseError:
@@ -26,16 +37,30 @@ def click_steps(xml_bytes):
     for ctn in timing.iter('{%s}cTn' % NSP):
         if ctn.get('nodeType') != 'clickEffect':
             continue
-        ent, exi = set(), set()
+        ent, exi, entp, exip = set(), set(), set(), set()
         for sub in ctn.iter('{%s}cTn' % NSP):
             pc = sub.get('presetClass')
             if pc not in ('entr', 'exit'):
                 continue
             for spt in sub.iter('{%s}spTgt' % NSP):
-                if spt.get('spid'):
-                    (ent if pc == 'entr' else exi).add(spt.get('spid'))
-        if ent or exi:
-            steps.append((ent, exi))
+                spid = spt.get('spid')
+                if not spid:
+                    continue
+                rng = []
+                for prg in spt.iter('{%s}pRg' % NSP):
+                    try:
+                        st = int(prg.get('st', '0'))
+                        en = int(prg.get('end', st))
+                    except ValueError:
+                        continue
+                    if en >= st:
+                        rng.extend(range(st, en + 1))
+                if rng:
+                    (entp if pc == 'entr' else exip).update((spid, i) for i in rng)
+                else:
+                    (ent if pc == 'entr' else exi).add(spid)
+        if ent or exi or entp or exip:
+            steps.append((ent, exi, entp, exip))
     return steps
 
 
@@ -106,22 +131,92 @@ def _drop_element(xml, tag):
     return xml[:m.start()] + xml[close + len(tag) + 3:]
 
 
+# <a:p> is a paragraph; <a:pPr> is its properties and must not match. The
+# lookahead keeps the two apart without matching every tag starting "a:p".
+_PARA_OPEN = re.compile(r'<a:p(?=[\s/>])[^>]*>')
+
+
+def _paragraph_spans(block):
+    """(start, end) of each paragraph in this shape's text body, in order.
+
+    Paragraphs do not nest, so a flat scan is enough - but it has to start at
+    the text body, or the properties block above it contributes spurious
+    matches and every index shifts.
+    """
+    tb = re.search(r'<p:txBody[\s>]', block)
+    if not tb:
+        return []
+    spans, pos = [], tb.start()
+    while True:
+        m = _PARA_OPEN.search(block, pos)
+        if not m:
+            return spans
+        if m.group(0).endswith('/>'):         # <a:p/>, an empty paragraph
+            spans.append((m.start(), m.end()))
+            pos = m.end()
+            continue
+        close = block.find('</a:p>', m.end())
+        if close == -1:
+            return spans
+        spans.append((m.start(), close + len('</a:p>')))
+        pos = close + len('</a:p>')
+
+
 def state_xml(xml_bytes, k, steps):
     """Slide XML as it looks after k clicks. k=0 is the base state."""
     xml = xml_bytes.decode('utf-8')
     later, gone = set(), set()
-    for i, (ent, exi) in enumerate(steps, 1):
+    para_hide = {}
+    for i, (ent, exi, entp, exip) in enumerate(steps, 1):
         if i > k:
             later |= ent
+            for spid, idx in entp:
+                para_hide.setdefault(spid, set()).add(idx)
         else:
             gone |= exi
+            for spid, idx in exip:
+                para_hide.setdefault(spid, set()).add(idx)
     hide = later | gone
+    # A shape whose paragraphs are animated must survive as a shape, or the
+    # whole list vanishes and every state before the last looks the same.
+    hide -= set(para_hide)
     for start, end, spid in sorted(_top_level_shapes(xml), reverse=True):
         if spid in hide:
             xml = xml[:start] + xml[end:]
+            continue
+        drop = para_hide.get(spid)
+        if not drop:
+            continue
+        block = xml[start:end]
+        spans = _paragraph_spans(block)
+        # Reverse order so earlier offsets stay valid as later ones are cut.
+        for idx in sorted(drop, reverse=True):
+            if 0 <= idx < len(spans):
+                ps, pe = spans[idx]
+                block = block[:ps] + block[pe:]
+        xml = xml[:start] + block + xml[end:]
     xml = _drop_element(xml, 'p:timing')      # states are static
     xml = _drop_element(xml, 'p:transition')
     return xml.encode('utf-8')
+
+
+def distinct_states(xml, steps):
+    """Every build state, with consecutive duplicates removed.
+
+    A step that changes nothing visible still costs a page, and a run of them
+    reads as the exporter repeating itself. Comparing the generated XML catches
+    that exactly and cheaply - two states that produce the same markup produce
+    the same page, whatever the animation claimed to do. Doing it here rather
+    than by comparing rendered images matters: the rendered pages are *not*
+    identical, because each carries its own slide number, so a pixel comparison
+    finds a difference and keeps the duplicate.
+    """
+    kept = []
+    for k in range(len(steps) + 1):
+        body = state_xml(xml, k, steps)
+        if not kept or body != kept[-1]:
+            kept.append(body)
+    return kept
 
 
 def variants(src, slide_part, outdir):
@@ -132,11 +227,11 @@ def variants(src, slide_part, outdir):
     steps = click_steps(xml)
     os.makedirs(outdir, exist_ok=True)
     made = []
-    for k in range(len(steps) + 1):
+    for k, body in enumerate(distinct_states(xml, steps)):
         out = os.path.join(outdir, "state%02d.pptx" % k)
         with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as w:
             for i in infos:
-                data = state_xml(xml, k, steps) if i.filename == slide_part else blobs[i.filename]
+                data = body if i.filename == slide_part else blobs[i.filename]
                 w.writestr(i.filename, data)
         made.append(out)
     return steps, made
@@ -216,12 +311,17 @@ def expand_deck(src, dst):
             r'<Relationship\b[^>]*notesSlide[^>]*/>', '',
             base_rels.decode('utf-8')).encode('utf-8') if base_rels else b''
 
-        blobs[part] = state_xml(xml, 0, steps)      # original becomes state 0
+        states = distinct_states(xml, steps)
+        blobs[part] = states[0]                     # original becomes state 0
+        if len(states) == 1:
+            # Every step produced the same slide, so there is nothing to show
+            # between them. The base state stands alone, timing stripped.
+            continue
         tags = []
-        for k in range(1, len(steps) + 1):
+        for body in states[1:]:
             name = 'ppt/slides/slide%d.xml' % next_num
             next_num += 1
-            new_parts[name] = state_xml(xml, k, steps)
+            new_parts[name] = body
             if copy_rels:
                 new_parts[name.replace('ppt/slides/', 'ppt/slides/_rels/') + '.rels'] = copy_rels
             rid = 'rId%d' % next_rid
@@ -233,7 +333,7 @@ def expand_deck(src, dst):
             tags.append('<p:sldId id="%d" r:id="%s"/>' % (next_sid, rid))
             next_sid += 1
         insert_after[sld_tag] = tags
-        expanded.append((slide_no, len(steps) + 1))
+        expanded.append((slide_no, len(states)))
 
     if not expanded:
         with open(dst, 'wb') as f, open(src, 'rb') as g:

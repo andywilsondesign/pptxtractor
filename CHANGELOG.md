@@ -5,6 +5,29 @@
 Found by running a 156-deck library end to end. Every item below cost that run
 something real.
 
+- **A bulleted list built one line at a time no longer exports as a run of
+  identical pages.** PowerPoint's default build for a list animates a single
+  text box paragraph by paragraph, and that reaches the XML as several click
+  steps that all name the same shape, distinguished only by a
+  `<p:txEl><p:pRg>`. `click_steps` read the spid and ignored the range, so
+  every step looked like "hide shape 8" - and the expansion produced six
+  copies of the same header-only slide followed by one where the whole list
+  appeared at once. Steps are now read as paragraph ranges where they carry
+  one, and the expander removes individual `<a:p>` elements instead of the
+  shape that holds them, so the build comes out as the reveal it actually is.
+  On the library that fixed 8 slides across 4 decks; one slide went from six
+  identical frames to a six-step build.
+
+- **A state that changes nothing no longer costs a page.** `distinct_states`
+  drops a build state whose generated XML matches the one before it. This is
+  deliberately done on the markup rather than on rendered images: two such
+  pages are *not* pixel-identical, because each carries its own slide number,
+  so comparing renders finds a difference and keeps the duplicate. Comparing
+  the XML is exact, needs no rendering, and has no tolerance to tune. It
+  removed 8 further redundant pages across 2 decks that the paragraph fix
+  did not touch - different cause, same symptom, which is why the guard is
+  worth having on its own.
+
 - **New: `pptxtractor fonts`.** `audit` could say which faces were missing but
   not what to do about them, and on that library it was the largest piece of
   preparation by a distance — 30 faces across 45 decks, resolved by hand.

@@ -35,6 +35,40 @@ def timing(spids):
             '</p:tnLst></p:timing>')
 
 
+def timing_paragraphs(spid, count):
+    """A main sequence that reveals one paragraph of one shape per click.
+
+    This is PowerPoint's default for a bulleted list, and the shape it reaches
+    the XML as every step naming the same spid, distinguished only by a
+    <p:txEl><p:pRg>. Reading the spid alone collapses the whole build into one
+    step and yields a run of identical frames.
+    """
+    pars = ""
+    for i in range(count):
+        pars += (f'<p:par><p:cTn id="{10+i}" fill="hold" nodeType="clickEffect">'
+                 f'<p:childTnLst><p:par><p:cTn id="{20+i}" presetClass="entr" fill="hold">'
+                 f'<p:childTnLst><p:set><p:cBhvr><p:cTn id="{30+i}" dur="1"/>'
+                 f'<p:tgtEl><p:spTgt spid="{spid}">'
+                 f'<p:txEl><p:pRg st="{i}" end="{i}"/></p:txEl>'
+                 f'</p:spTgt></p:tgtEl></p:cBhvr></p:set>'
+                 f'</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>')
+    return ('<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" restart="never"'
+            ' nodeType="tmRoot"><p:childTnLst><p:seq concurrent="1" nextAc="seek">'
+            '<p:cTn id="2" dur="indefinite" nodeType="mainSeq"><p:childTnLst>'
+            + pars + '</p:childTnLst></p:cTn></p:seq></p:childTnLst></p:cTn></p:par>'
+            '</p:tnLst></p:timing>')
+
+
+def bullets(sid, name, lines):
+    """One shape whose text body holds several paragraphs."""
+    body = "".join(f'<a:p><a:r><a:rPr lang="en-GB"/><a:t>{ln}</a:t></a:r></a:p>'
+                   for ln in lines)
+    return (f'<p:sp><p:nvSpPr><p:cNvPr id="{sid}" name="{name}"/><p:cNvSpPr/>'
+            f'<p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/>'
+            f'<a:ext cx="1000000" cy="500000"/></a:xfrm></p:spPr>'
+            f'<p:txBody><a:bodyPr/><a:lstStyle/>{body}</p:txBody></p:sp>')
+
+
 def slide(shapes, tim="", hidden=False):
     # show="0" is how PowerPoint marks a slide hidden. It still exports
     # to nothing: hidden slides never reach the PDF.

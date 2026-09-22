@@ -6,7 +6,7 @@ The PowerPoint-driven export cannot be covered here - CI runners have no Office
 licence - so this exercises the parts that do the actual thinking: the audit,
 the animation expansion, notes extraction and the PDF incremental update.
 """
-import json, os, shutil, subprocess, sys, tempfile, zipfile
+import json, os, re, shutil, subprocess, sys, tempfile, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -107,6 +107,52 @@ def main():
         check("page map length", len(pmap), 4)
         check("page 2 is a build state", (pmap[1]["slide"], pmap[1]["state"]), (1, 1))
         check("page 4 is the plain slide", (pmap[3]["slide"], pmap[3]["state"]), (2, None))
+
+        # PowerPoint's default build for a bulleted list animates one text
+        # box paragraph by paragraph. Read as whole-shape steps it produces a
+        # run of identical frames and then one where everything appears.
+        print("paragraph-level builds")
+        lines = ["First point", "Second point", "Third point", "Fourth point"]
+        para_slide = make_fixture.slide(
+            [make_fixture.shape(2, "Title", "Heading"),
+             make_fixture.bullets(3, "Body", lines)],
+            make_fixture.timing_paragraphs(3, 4)).encode("utf8")
+        steps = buildstates.click_steps(para_slide)
+        check("four click steps", len(steps), 4)
+        check("no whole-shape targets", sum(len(a) + len(b) for a, b, _c, _d in steps), 0)
+        check("four paragraph targets",
+              sum(len(c) + len(d) for _a, _b, c, d in steps), 4)
+
+        def para_count(x):
+            return len(re.findall(rb"<a:p(?=[\s/>])", x))
+
+        counts = [para_count(buildstates.state_xml(para_slide, k, steps))
+                  for k in range(len(steps) + 1)]
+        # state 0 is the title's paragraph alone; each click adds one bullet
+        check("paragraphs grow one per click", counts, [1, 2, 3, 4, 5])
+        truthy("the shape itself always survives",
+               all(b"Body" in buildstates.state_xml(para_slide, k, steps)
+                   for k in range(len(steps) + 1)))
+        truthy("the last bullet appears only at the end",
+               b"Fourth point" in buildstates.state_xml(para_slide, 4, steps)
+               and b"Fourth point" not in buildstates.state_xml(para_slide, 3, steps))
+        truthy("the first bullet appears at the first click",
+               b"First point" in buildstates.state_xml(para_slide, 1, steps)
+               and b"First point" not in buildstates.state_xml(para_slide, 0, steps))
+        check("no two states are the same",
+              len(buildstates.distinct_states(para_slide, steps)), 5)
+
+        # A step that changes nothing visible still costs a page. Comparing the
+        # generated XML catches that; comparing rendered pages would not,
+        # because each page carries its own slide number.
+        print("duplicate states")
+        dead = make_fixture.slide(
+            [make_fixture.shape(2, "Only", "Nothing animates here")],
+            make_fixture.timing_paragraphs(99, 3)).encode("utf8")
+        dsteps = buildstates.click_steps(dead)
+        check("steps are still read", len(dsteps), 3)
+        check("but collapse to one state",
+              len(buildstates.distinct_states(dead, dsteps)), 1)
 
         print("speaker notes")
         notes, page_of = extract_notes.slide_notes(deck)
