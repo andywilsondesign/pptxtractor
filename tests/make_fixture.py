@@ -118,6 +118,8 @@ def build_pptx(path):
         '<Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>'
         '<Override PartName="/ppt/slides/slide2.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>'
         '<Override PartName="/ppt/notesSlides/notesSlide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/>'
+        '<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>'
+        '<Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>'
         '<Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>'
         '</Types>')
     p['_rels/.rels'] = XD + (
@@ -144,8 +146,34 @@ def build_pptx(path):
         f'<Relationship Id="rId1" Type="{REL}/notesSlide" Target="../notesSlides/notesSlide1.xml"/>'
         f'<Relationship Id="rId2" Type="{REL}/image" Target="../media/loop.gif"/>'
         f'<Relationship Id="rId3" Type="{REL}/video" Target="https://www.youtube.com/watch?v=TESTID" TargetMode="External"/>'
+        f'<Relationship Id="rId4" Type="{REL}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>'
         '</Relationships>')
-    p['ppt/slides/_rels/slide2.xml.rels'] = XD + f'<Relationships xmlns="{REL}"/>'
+    p['ppt/slides/_rels/slide2.xml.rels'] = XD + (
+        f'<Relationships xmlns="{REL}">'
+        f'<Relationship Id="rId1" Type="{REL}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>'
+        '</Relationships>')
+    # A layout and the master it belongs to. Every slide in a real deck is
+    # related to a layout, and the validator checks for it - a fixture without
+    # one would make that check untestable.
+    p['ppt/slideLayouts/slideLayout1.xml'] = XD + (
+        f'<p:sldLayout {NS_P} {NS_A} {NS_R} type="blank"><p:cSld><p:spTree>'
+        '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
+        '<p:grpSpPr/></p:spTree></p:cSld></p:sldLayout>')
+    p['ppt/slideLayouts/_rels/slideLayout1.xml.rels'] = XD + (
+        f'<Relationships xmlns="{REL}">'
+        f'<Relationship Id="rId1" Type="{REL}/slideMaster" Target="../slideMasters/slideMaster1.xml"/>'
+        '</Relationships>')
+    p['ppt/slideMasters/slideMaster1.xml'] = XD + (
+        f'<p:sldMaster {NS_P} {NS_A} {NS_R}><p:cSld><p:spTree>'
+        '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
+        '<p:grpSpPr/></p:spTree></p:cSld>'
+        '<p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst>'
+        '</p:sldMaster>')
+    p['ppt/slideMasters/_rels/slideMaster1.xml.rels'] = XD + (
+        f'<Relationships xmlns="{REL}">'
+        f'<Relationship Id="rId1" Type="{REL}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>'
+        f'<Relationship Id="rId2" Type="{REL}/theme" Target="../theme/theme1.xml"/>'
+        '</Relationships>')
     p['ppt/notesSlides/notesSlide1.xml'] = notes("Fixture speaker notes.\nSecond line.")
     p['ppt/notesSlides/_rels/notesSlide1.xml.rels'] = XD + f'<Relationships xmlns="{REL}"/>'
     p['ppt/theme/theme1.xml'] = XD + (

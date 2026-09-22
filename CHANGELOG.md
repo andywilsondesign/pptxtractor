@@ -18,6 +18,28 @@ something real.
   On the library that fixed 8 slides across 4 decks; one slide went from six
   identical frames to a six-step build.
 
+- **The expansion checks its own output before PowerPoint sees it.** Handed a
+  deck it considers damaged, PowerPoint does not fail - it raises a "found a
+  problem with content" dialog and waits. Driven by AppleScript nobody answers
+  that, so the run burns a whole deadline and the deck is then reported as a
+  timeout, which is the one explanation certainly wrong. Two separate faults
+  reached a real library this way, each costing about forty minutes per deck
+  to learn nothing. `expand` now validates the deck it just wrote - XML
+  well-formedness, text bodies with no paragraphs, slides with no layout or
+  content type, duplicate slide ids, relationships resolving to nothing - and
+  exits non-zero if any of it fails, so the caller falls back to the untouched
+  deck. The cost is the build pages; the alternative was a modal and a dead
+  deadline.
+
+- **"Timed out" no longer covers for "PowerPoint is asking you something".**
+  A deck that is slow and a deck waiting on a dialog look identical from the
+  outside: the script simply does not return. They are not the same problem,
+  and reporting the second as a timeout sends the reader after deck size when
+  the answer is a prompt on screen. Converting burns CPU and a dialog does
+  not, so the watchdog now watches that: if PowerPoint has done nothing for
+  the last minute or more, it says a dialog is the likely cause, how long it
+  has been idle, and that a longer `--deadline` will not help.
+
 - **Hiding every paragraph of a text box no longer produces a file PowerPoint
   offers to repair.** A `<p:txBody>` must hold at least one `<a:p>`; the schema
   has no way to say "no text". The paragraph-level build above hid whole boxes

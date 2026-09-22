@@ -421,6 +421,86 @@ def page_map(src, expanded):
     return pages
 
 
+def validate_deck(path):
+    """Check a deck we generated is one PowerPoint will actually open.
+
+    This exists because the alternative is so expensive. Handed a deck it
+    considers damaged, PowerPoint does not fail - it puts up a "found a problem
+    with content" dialog and waits. Driven by AppleScript nobody answers it, so
+    the run burns a full deadline, the watchdog kills it, and the deck is
+    reported as a timeout: the one explanation that is certainly wrong. Two
+    separate faults reached a real library that way, each costing about forty
+    minutes per deck to learn nothing.
+
+    Returns a list of problems; empty means it is worth handing over.
+    """
+    problems = []
+    try:
+        z = zipfile.ZipFile(path)
+    except Exception as e:
+        return ["not a readable package: %s" % e]
+    with z:
+        names = set(z.namelist())
+        for n in sorted(names):
+            if not (n.endswith('.xml') or n.endswith('.rels')):
+                continue
+            try:
+                ET.fromstring(z.read(n))
+            except ET.ParseError as e:
+                problems.append("%s is not well-formed XML: %s" % (n, e))
+        slides = sorted(n for n in names
+                        if re.fullmatch(r'ppt/slides/slide\d+\.xml', n))
+        # A text body must hold at least one paragraph; the schema cannot say
+        # "no text", and an empty one is enough on its own to trigger repair.
+        for n in slides:
+            body = z.read(n).decode('utf-8', 'ignore')
+            for m in re.finditer(r'<p:txBody>(.*?)</p:txBody>', body, re.S):
+                if not re.search(r'<a:p(?=[\s/>])', m.group(1)):
+                    problems.append("%s has a text body with no paragraphs" % n)
+                    break
+            rels = n.replace('ppt/slides/', 'ppt/slides/_rels/') + '.rels'
+            if rels not in names:
+                problems.append("%s has no relationships part" % n)
+            elif 'slideLayout' not in z.read(rels).decode('utf-8', 'ignore'):
+                problems.append("%s is not related to a slide layout" % n)
+        try:
+            ct = z.read('[Content_Types].xml').decode('utf-8', 'ignore')
+        except KeyError:
+            return problems + ["no [Content_Types].xml"]
+        for n in slides:
+            if 'PartName="/%s"' % n not in ct:
+                problems.append("%s has no content-type override" % n)
+        try:
+            pres = z.read('ppt/presentation.xml').decode('utf-8', 'ignore')
+            prels = z.read('ppt/_rels/presentation.xml.rels').decode('utf-8', 'ignore')
+        except KeyError as e:
+            return problems + ["missing %s" % e]
+        target = {}
+        for m in re.finditer(r'<Relationship\b[^>]*>', prels):
+            i = re.search(r'Id="([^"]+)"', m.group(0))
+            t = re.search(r'Target="([^"]+)"', m.group(0))
+            if i and t:
+                target[i.group(1)] = t.group(1)
+        seen_id, seen_rid = set(), set()
+        for m in re.finditer(r'<p:sldId\b[^>]*\bid="(\d+)"[^>]*r:id="([^"]+)"', pres):
+            sid, rid = m.group(1), m.group(2)
+            if sid in seen_id:
+                problems.append("duplicate slide id %s" % sid)
+            if rid in seen_rid:
+                problems.append("slide relationship %s used twice" % rid)
+            seen_id.add(sid); seen_rid.add(rid)
+            if rid not in target:
+                problems.append("slide relationship %s resolves to nothing" % rid)
+            elif ('ppt/' + target[rid].lstrip('/')) not in names:
+                problems.append("slide %s points at a missing part" % rid)
+    # De-duplicate but keep order, and keep the list readable.
+    out = []
+    for p in problems:
+        if p not in out:
+            out.append(p)
+    return out
+
+
 if __name__ == "__main__":
     # `map` writes the page map for a deck nobody is expanding: one page per
     # visible slide. Worth having even then, because hidden slides mean page
@@ -434,6 +514,24 @@ if __name__ == "__main__":
     if sys.argv[1] == "expand":
         src, dst = sys.argv[2], sys.argv[3]
         expanded = expand_deck(src, dst)
+        # Check our own work before PowerPoint has to. Exiting non-zero here
+        # makes the caller fall back to the untouched deck, which costs the
+        # build pages and nothing else - the alternative is a modal dialog and
+        # a dead deadline.
+        faults = validate_deck(dst)
+        if faults:
+            sys.stderr.write(
+                "expansion produced a deck PowerPoint would refuse - "
+                "falling back to the original:\n")
+            for f in faults[:6]:
+                sys.stderr.write("    %s\n" % f)
+            if len(faults) > 6:
+                sys.stderr.write("    ... and %d more\n" % (len(faults) - 6))
+            try:
+                os.remove(dst)
+            except OSError:
+                pass
+            sys.exit(1)
         if len(sys.argv) > 4:
             import json
             json.dump({"source": os.path.basename(src),

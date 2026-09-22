@@ -185,6 +185,42 @@ def main():
         check("but collapse to one state",
               len(buildstates.distinct_states(dead, dsteps)), 1)
 
+        # Checking our own output before PowerPoint has to. Handed a deck it
+        # considers damaged, PowerPoint puts up a repair dialog and waits -
+        # which, driven by AppleScript, costs a whole deadline and is then
+        # reported as a timeout, the one explanation that is certainly wrong.
+        print("validating a generated deck")
+        good = os.path.join(tmp, "good.pptx")
+        buildstates.expand_deck(deck, good)
+        check("a deck we built passes", buildstates.validate_deck(good), [])
+
+        def rebuild(path, mangle):
+            src = zipfile.ZipFile(good)
+            with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as w:
+                for i in src.infolist():
+                    w.writestr(i.filename, mangle(i.filename, src.read(i.filename)))
+            src.close()
+            return path
+
+        # the fault that reached a real library: every paragraph hidden
+        empty = rebuild(os.path.join(tmp, "empty.pptx"), lambda n, d:
+                        re.sub(rb"<a:p>.*?</a:p>", b"", d, flags=re.S)
+                        if n == "ppt/slides/slide1.xml" else d)
+        truthy("an emptied text body is caught",
+               any("no paragraphs" in f for f in buildstates.validate_deck(empty)))
+
+        broken = rebuild(os.path.join(tmp, "broken.pptx"), lambda n, d:
+                         d.replace(b"</p:sld>", b"") if n == "ppt/slides/slide1.xml" else d)
+        truthy("malformed XML is caught",
+               any("well-formed" in f for f in buildstates.validate_deck(broken)))
+
+        nolayout = rebuild(os.path.join(tmp, "nolayout.pptx"), lambda n, d:
+                           b'<Relationships xmlns="http://schemas.openxmlformats.org'
+                           b'/package/2006/relationships"/>'
+                           if n == "ppt/slides/_rels/slide1.xml.rels" else d)
+        truthy("a slide with no layout is caught",
+               any("slide layout" in f for f in buildstates.validate_deck(nolayout)))
+
         print("speaker notes")
         notes, page_of = extract_notes.slide_notes(deck)
         truthy("reads the body placeholder", notes.get(1, "").startswith("Fixture speaker notes."))

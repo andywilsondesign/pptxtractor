@@ -442,12 +442,32 @@ tell application "Microsoft PowerPoint"
 end tell
 OSA
   local osa=$!
+  # A deck that is slow and a deck that is waiting on a dialog look identical
+  # from here: the script just does not return. They are not the same problem,
+  # and saying "timed out" for the second sends the reader after deck size when
+  # the answer is a modal nobody can answer. Tell them apart by what PowerPoint
+  # is doing: converting a deck burns CPU, and a dialog does not.
+  local idle=0 cpu
   while kill -0 "$osa" 2>/dev/null; do
     [ $i -ge "$DEADLINE" ] && break
+    cpu="$(ps -o %cpu= -p "$(pgrep -x 'Microsoft PowerPoint' | head -1)" 2>/dev/null | tr -d ' ')"
+    case "${cpu:-0}" in
+      0|0.0|0.00) idle=$((idle+2)) ;;
+      *) idle=0 ;;
+    esac
     sleep 2; i=$((i+2))
   done
   if kill -0 "$osa" 2>/dev/null; then
-    echo "  timed out after ${DEADLINE}s - skipping this deck"
+    if [ "$idle" -ge 60 ]; then
+      echo "  PowerPoint stopped working ${idle}s ago and is probably waiting on a dialog"
+      echo "       Nothing was converting for the last ${idle} seconds of the"
+      echo "       ${DEADLINE}s allowed, which is what a modal prompt looks like from"
+      echo "       here - most often \"found a problem with content\". Bring"
+      echo "       PowerPoint to the front to see it. A longer --deadline will"
+      echo "       not help; the deck is not slow, it is asking a question."
+    else
+      echo "  timed out after ${DEADLINE}s - skipping this deck"
+    fi
     kill -9 "$osa" 2>/dev/null; wait "$osa" 2>/dev/null
     ppt_reset
     return 1
