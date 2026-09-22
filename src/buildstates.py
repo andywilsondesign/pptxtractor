@@ -162,6 +162,29 @@ def _paragraph_spans(block):
         pos = close + len('</a:p>')
 
 
+def _keep_one_paragraph(block):
+    """Leave every text body with at least one paragraph.
+
+    A <p:txBody> must contain one or more <a:p>; the schema has no way to say
+    "no text". Hiding every paragraph of a box therefore produces a file
+    PowerPoint offers to repair rather than open - and driven by AppleScript
+    that prompt is never answered, so the deck reports as a timeout with no
+    clue as to why. An empty paragraph shows nothing and keeps the file legal.
+    """
+    out, pos = [], 0
+    for m in re.finditer(r'<p:txBody>(.*?)</p:txBody>', block, re.S):
+        if re.search(r'<a:p(?=[\s/>])', m.group(1)):
+            continue
+        out.append((m.end() - len('</p:txBody>'), '<a:p/>'))
+    if not out:
+        return block
+    parts, last = [], 0
+    for at, ins in out:
+        parts.append(block[last:at]); parts.append(ins); last = at
+    parts.append(block[last:])
+    return "".join(parts)
+
+
 def state_xml(xml_bytes, k, steps):
     """Slide XML as it looks after k clicks. k=0 is the base state."""
     xml = xml_bytes.decode('utf-8')
@@ -194,6 +217,7 @@ def state_xml(xml_bytes, k, steps):
             if 0 <= idx < len(spans):
                 ps, pe = spans[idx]
                 block = block[:ps] + block[pe:]
+        block = _keep_one_paragraph(block)
         xml = xml[:start] + block + xml[end:]
     xml = _drop_element(xml, 'p:timing')      # states are static
     xml = _drop_element(xml, 'p:transition')
@@ -351,11 +375,22 @@ def expand_deck(src, dst):
     ct = ct.replace('</Types>', ''.join(new_cts) + '</Types>')
     blobs['[Content_Types].xml'] = ct.encode('utf-8')
 
+    # Keep each part packed the way it arrived. A deck can store its media
+    # uncompressed - one 349 MB deck here stores 341 of its 858 parts that way,
+    # including an 86 MB TIFF - and deflating all of it turns a package
+    # PowerPoint could read straight through into 350 MB it must inflate before
+    # it can show a slide. Re-packing is not our business; only the slides we
+    # rewrote have changed, so everything else goes back as it came.
     with zipfile.ZipFile(dst, 'w', zipfile.ZIP_DEFLATED) as w:
         for i in infos:
-            w.writestr(i.filename, blobs[i.filename])
+            info = zipfile.ZipInfo(i.filename, date_time=i.date_time)
+            info.compress_type = i.compress_type
+            info.external_attr = i.external_attr
+            info.internal_attr = i.internal_attr
+            info.create_system = i.create_system
+            w.writestr(info, blobs[i.filename])
         for n, d in new_parts.items():
-            w.writestr(n, d)
+            w.writestr(n, d)                     # new slide XML: deflate is right
     return expanded
 
 

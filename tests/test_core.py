@@ -128,8 +128,11 @@ def main():
 
         counts = [para_count(buildstates.state_xml(para_slide, k, steps))
                   for k in range(len(steps) + 1)]
-        # state 0 is the title's paragraph alone; each click adds one bullet
-        check("paragraphs grow one per click", counts, [1, 2, 3, 4, 5])
+        # State 0 is the title plus an empty placeholder paragraph: the body
+        # has had all its bullets hidden, and a <p:txBody> may not be left
+        # with none. From the first click on, that placeholder is replaced by
+        # real content and each click adds one more bullet.
+        check("paragraphs grow one per click", counts, [2, 2, 3, 4, 5])
         truthy("the shape itself always survives",
                all(b"Body" in buildstates.state_xml(para_slide, k, steps)
                    for k in range(len(steps) + 1)))
@@ -141,6 +144,34 @@ def main():
                and b"First point" not in buildstates.state_xml(para_slide, 0, steps))
         check("no two states are the same",
               len(buildstates.distinct_states(para_slide, steps)), 5)
+
+        # A <p:txBody> must hold at least one <a:p>; the schema cannot express
+        # "no text". Hiding every paragraph of a box leaves it empty, and
+        # PowerPoint then offers to repair the file instead of opening it -
+        # which, driven by AppleScript, is a prompt nobody answers and reports
+        # as a timeout. The earlier checks here counted paragraphs across the
+        # whole slide and so never noticed the body had been emptied.
+        def empty_bodies(x):
+            return sum(1 for m in re.finditer(rb"<p:txBody>(.*?)</p:txBody>", x, re.S)
+                       if not re.search(rb"<a:p(?=[\s/>])", m.group(1)))
+
+        check("no text body is ever left empty",
+              [empty_bodies(buildstates.state_xml(para_slide, k, steps))
+               for k in range(len(steps) + 1)], [0, 0, 0, 0, 0])
+
+        # the same slide with *every* paragraph animated is the case that broke
+        only_bullets = make_fixture.slide(
+            [make_fixture.bullets(3, "Body", ["One", "Two", "Three"])],
+            make_fixture.timing_paragraphs(3, 3)).encode("utf8")
+        obsteps = buildstates.click_steps(only_bullets)
+        check("every paragraph animated, body still legal",
+              [empty_bodies(buildstates.state_xml(only_bullets, k, obsteps))
+               for k in range(len(obsteps) + 1)], [0, 0, 0, 0])
+        truthy("state 0 shows none of the bullets",
+               b"One" not in buildstates.state_xml(only_bullets, 0, obsteps))
+        truthy("the final state shows them all",
+               all(w in buildstates.state_xml(only_bullets, 3, obsteps)
+                   for w in (b"One", b"Two", b"Three")))
 
         # A step that changes nothing visible still costs a page. Comparing the
         # generated XML catches that; comparing rendered pages would not,

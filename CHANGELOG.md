@@ -18,6 +18,22 @@ something real.
   On the library that fixed 8 slides across 4 decks; one slide went from six
   identical frames to a six-step build.
 
+- **Hiding every paragraph of a text box no longer produces a file PowerPoint
+  offers to repair.** A `<p:txBody>` must hold at least one `<a:p>`; the schema
+  has no way to say "no text". The paragraph-level build above hid whole boxes
+  when every one of their paragraphs was animated, and PowerPoint then asked to
+  repair the deck rather than opening it - a prompt AppleScript can never
+  answer, so the deck reported as a timeout with nothing in the log to explain
+  it. An empty paragraph is left behind instead: it shows nothing and keeps the
+  file legal.
+
+- **Each part keeps the compression it arrived with.** Re-packing a deck is not
+  this tool's business. One 349 MB deck here stores 341 of its 858 parts
+  uncompressed, including an 86 MB TIFF; deflating all of it turned a package
+  PowerPoint could read straight through into 350 MB it had to inflate before
+  showing a slide, and shrank the file by 58% for no reason. Only the slides
+  that were rewritten differ now; everything else goes back byte for byte.
+
 - **A state that changes nothing no longer costs a page.** `distinct_states`
   drops a build state whose generated XML matches the one before it. This is
   deliberately done on the markup rather than on rendered images: two such
